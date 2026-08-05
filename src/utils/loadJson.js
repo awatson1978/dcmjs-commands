@@ -25,11 +25,7 @@ export async function loadJson(dirSrc, name, defaultReturn) {
 }
 
 /** Calls the JSON reader on the path appropriate for the given hash data */
-export function readHashData(
-  studyDir,
-  hashValue,
-  extension = ".json.gz"
-) {
+export function readHashData(studyDir, hashValue, extension = ".json.gz") {
   const hashPath = path.join(
     studyDir,
     "bulkdata",

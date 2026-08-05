@@ -68,9 +68,8 @@ export class DicomAccess {
       return new DicomWebAccess(url, options);
     }
     if (scheme.startsWith("file")) {
-      const { StaticDicomWebAccess } = await import(
-        "../staticdicomweb/StaticDicomWebAccess.js"
-      );
+      const { StaticDicomWebAccess } =
+        await import("../staticdicomweb/StaticDicomWebAccess.js");
       // Static dicomweb directory format, basically files in a structure
       // like dicomweb but named so they work in a file system.
       return new StaticDicomWebAccess(url, options);

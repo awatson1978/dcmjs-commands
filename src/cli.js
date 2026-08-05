@@ -26,102 +26,102 @@ Run 'dcmjs <command> --help' for command options.
 `;
 
 const COMMANDS = {
-    convert: {
-        run: runConvert,
-        usage: convertUsage,
-        options: {
-            to: { type: "string", short: "t" },
-            output: { type: "string", short: "o" },
-            pretty: { type: "boolean", default: false },
-            bundle: { type: "boolean", default: false },
-            "fhir-version": { type: "string" },
-            "patient-name": { type: "string" },
-            "patient-id": { type: "string" },
-            title: { type: "string" },
-            "study-uid": { type: "string" },
-            "series-uid": { type: "string" },
-            help: { type: "boolean", short: "h", default: false }
-        }
+  convert: {
+    run: runConvert,
+    usage: convertUsage,
+    options: {
+      to: { type: "string", short: "t" },
+      output: { type: "string", short: "o" },
+      pretty: { type: "boolean", default: false },
+      bundle: { type: "boolean", default: false },
+      "fhir-version": { type: "string" },
+      "patient-name": { type: "string" },
+      "patient-id": { type: "string" },
+      title: { type: "string" },
+      "study-uid": { type: "string" },
+      "series-uid": { type: "string" },
+      help: { type: "boolean", short: "h", default: false },
     },
-    dump: {
-        run: runDump,
-        usage: dumpUsage,
-        options: {
-            json: { type: "boolean", default: false },
-            raw: { type: "boolean", default: false },
-            help: { type: "boolean", short: "h", default: false }
-        }
+  },
+  dump: {
+    run: runDump,
+    usage: dumpUsage,
+    options: {
+      json: { type: "boolean", default: false },
+      raw: { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
     },
-    instance: {
-        run: runInstance,
-        usage: instanceUsage,
-        options: {
-            pretty: { type: "boolean", short: "p", default: false },
-            help: { type: "boolean", short: "h", default: false }
-        }
+  },
+  instance: {
+    run: runInstance,
+    usage: instanceUsage,
+    options: {
+      pretty: { type: "boolean", short: "p", default: false },
+      help: { type: "boolean", short: "h", default: false },
     },
-    anonymize: {
-        run: runAnonymize,
-        usage: anonymizeUsage,
-        options: {
-            output: { type: "string", short: "o" },
-            help: { type: "boolean", short: "h", default: false }
-        }
+  },
+  anonymize: {
+    run: runAnonymize,
+    usage: anonymizeUsage,
+    options: {
+      output: { type: "string", short: "o" },
+      help: { type: "boolean", short: "h", default: false },
     },
-    validate: {
-        run: runValidate,
-        usage: validateUsage,
-        options: {
-            quiet: { type: "boolean", default: false },
-            json: { type: "string" },
-            help: { type: "boolean", short: "h", default: false }
-        }
-    }
+  },
+  validate: {
+    run: runValidate,
+    usage: validateUsage,
+    options: {
+      quiet: { type: "boolean", default: false },
+      json: { type: "string" },
+      help: { type: "boolean", short: "h", default: false },
+    },
+  },
 };
 
 export async function runCli({ dcmjs, argv, stdout, stderr }) {
-    const [command, ...rest] = argv;
+  const [command, ...rest] = argv;
 
-    if (!command || command === "--help" || command === "-h") {
-        if (command) {
-            stdout(usage);
-            return 0;
-        }
-        stderr(usage);
-        return 1;
+  if (!command || command === "--help" || command === "-h") {
+    if (command) {
+      stdout(usage);
+      return 0;
     }
+    stderr(usage);
+    return 1;
+  }
 
-    const spec = COMMANDS[command];
-    if (!spec) {
-        stderr(`dcmjs: unknown command "${command}"`);
-        stderr(usage);
-        return 1;
-    }
+  const spec = COMMANDS[command];
+  if (!spec) {
+    stderr(`dcmjs: unknown command "${command}"`);
+    stderr(usage);
+    return 1;
+  }
 
-    let parsed;
-    try {
-        parsed = parseArgs({
-            args: rest,
-            options: spec.options,
-            strict: true,
-            allowPositionals: true
-        });
-    } catch (err) {
-        stderr(`dcmjs ${command}: ${err.message}`);
-        stderr(spec.usage);
-        return 1;
-    }
-
-    if (parsed.values.help) {
-        stdout(spec.usage);
-        return 0;
-    }
-
-    return spec.run({
-        dcmjs,
-        positionals: parsed.positionals,
-        values: parsed.values,
-        stdout,
-        stderr
+  let parsed;
+  try {
+    parsed = parseArgs({
+      args: rest,
+      options: spec.options,
+      strict: true,
+      allowPositionals: true,
     });
+  } catch (err) {
+    stderr(`dcmjs ${command}: ${err.message}`);
+    stderr(spec.usage);
+    return 1;
+  }
+
+  if (parsed.values.help) {
+    stdout(spec.usage);
+    return 0;
+  }
+
+  return spec.run({
+    dcmjs,
+    positionals: parsed.positionals,
+    values: parsed.values,
+    stdout,
+    stderr,
+  });
 }

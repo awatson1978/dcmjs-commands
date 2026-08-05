@@ -15,31 +15,31 @@ Print a DICOM file's dict as tag-keyed DICOM JSON.
 `;
 
 export async function runInstance({
-    dcmjs,
-    positionals,
-    values,
-    stdout,
-    stderr
+  dcmjs,
+  positionals,
+  values,
+  stdout,
+  stderr,
 }) {
-    const [input] = positionals;
-    if (!input) {
-        stderr(instanceUsage);
-        return 1;
-    }
+  const [input] = positionals;
+  if (!input) {
+    stderr(instanceUsage);
+    return 1;
+  }
 
-    try {
-        const { DicomMessage } = dcmjs.data;
-        const dicomDict = DicomMessage.readFile(readFileArrayBuffer(input));
-        stdout(
-            JSON.stringify(
-                dicomDict.dict,
-                binaryReplacer("base64"),
-                values.pretty ? 2 : 0
-            )
-        );
-        return 0;
-    } catch (err) {
-        stderr(`instance: ${err.message}`);
-        return 1;
-    }
+  try {
+    const { DicomMessage } = dcmjs.data;
+    const dicomDict = DicomMessage.readFile(readFileArrayBuffer(input));
+    stdout(
+      JSON.stringify(
+        dicomDict.dict,
+        binaryReplacer("base64"),
+        values.pretty ? 2 : 0
+      )
+    );
+    return 0;
+  } catch (err) {
+    stderr(`instance: ${err.message}`);
+    return 1;
+  }
 }

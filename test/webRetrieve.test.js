@@ -82,9 +82,9 @@ test("rejects connection errors with an Error instance", async () => {
       probe.close(() => resolve(p));
     });
   });
-  await expect(
-    httprequest(`http://127.0.0.1:${port}/`)
-  ).rejects.toBeInstanceOf(Error);
+  await expect(httprequest(`http://127.0.0.1:${port}/`)).rejects.toBeInstanceOf(
+    Error
+  );
 });
 
 test("times out unresponsive servers", async () => {

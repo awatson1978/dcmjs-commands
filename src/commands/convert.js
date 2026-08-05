@@ -7,10 +7,10 @@
 //   .pdf → dcm (Encapsulated PDF wrap) | fhir (DocumentReference)
 
 import {
-    readFileArrayBuffer,
-    sniffKind,
-    binaryReplacer,
-    writeOutput
+  readFileArrayBuffer,
+  sniffKind,
+  binaryReplacer,
+  writeOutput,
 } from "../io.js";
 
 export const convertUsage = `usage: dcmjs convert <input> --to <format> [options]
@@ -33,143 +33,142 @@ Options:
 `;
 
 function stringify(value, pretty) {
-    return JSON.stringify(value, binaryReplacer("base64"), pretty ? 4 : 0);
+  return JSON.stringify(value, binaryReplacer("base64"), pretty ? 4 : 0);
 }
 
 function pdfOptionsFromValues(values) {
-    const options = {};
-    if (values["patient-name"]) {
-        options.PatientName = values["patient-name"];
-    }
-    if (values["patient-id"]) {
-        options.PatientID = values["patient-id"];
-    }
-    if (values.title) {
-        options.DocumentTitle = values.title;
-    }
-    if (values["study-uid"]) {
-        options.StudyInstanceUID = values["study-uid"];
-    }
-    if (values["series-uid"]) {
-        options.SeriesInstanceUID = values["series-uid"];
-    }
-    return options;
+  const options = {};
+  if (values["patient-name"]) {
+    options.PatientName = values["patient-name"];
+  }
+  if (values["patient-id"]) {
+    options.PatientID = values["patient-id"];
+  }
+  if (values.title) {
+    options.DocumentTitle = values.title;
+  }
+  if (values["study-uid"]) {
+    options.StudyInstanceUID = values["study-uid"];
+  }
+  if (values["series-uid"]) {
+    options.SeriesInstanceUID = values["series-uid"];
+  }
+  return options;
 }
 
 async function convertDicom({ dcmjs, arrayBuffer, to, values }) {
-    const { DicomMessage, DicomMetaDictionary } = dcmjs.data;
-    const fhirVersion = values["fhir-version"] || "R4B";
+  const { DicomMessage, DicomMetaDictionary } = dcmjs.data;
+  const fhirVersion = values["fhir-version"] || "R4B";
 
-    if (to === "json") {
-        const dataset = DicomMetaDictionary.naturalizeDataset(
-            DicomMessage.readFile(arrayBuffer).dict
-        );
-        return { text: stringify(dataset, values.pretty) };
+  if (to === "json") {
+    const dataset = DicomMetaDictionary.naturalizeDataset(
+      DicomMessage.readFile(arrayBuffer).dict
+    );
+    return { text: stringify(dataset, values.pretty) };
+  }
+
+  if (to === "dicomweb-json") {
+    const json =
+      await dcmjs.eventStream.DicomEventStream.fromPart10(
+        arrayBuffer
+      ).toDicomWebJson();
+    return { text: stringify(json, values.pretty) };
+  }
+
+  if (to === "fhir") {
+    if (values.bundle) {
+      const dataset = DicomMetaDictionary.naturalizeDataset(
+        DicomMessage.readFile(arrayBuffer).dict
+      );
+      const bundle = dcmjs.fhir.toBundle([dataset], { fhirVersion });
+      return { text: stringify(bundle, values.pretty) };
     }
+    const resources = dcmjs.fhir.fromPart10(arrayBuffer, { fhirVersion });
+    return { text: stringify(resources, values.pretty) };
+  }
 
-    if (to === "dicomweb-json") {
-        const json = await dcmjs.eventStream.DicomEventStream.fromPart10(
-            arrayBuffer
-        ).toDicomWebJson();
-        return { text: stringify(json, values.pretty) };
-    }
+  if (to === "dcm") {
+    const dicomDict = DicomMessage.readFile(arrayBuffer);
+    return { binary: Buffer.from(dicomDict.write()) };
+  }
 
-    if (to === "fhir") {
-        if (values.bundle) {
-            const dataset = DicomMetaDictionary.naturalizeDataset(
-                DicomMessage.readFile(arrayBuffer).dict
-            );
-            const bundle = dcmjs.fhir.toBundle([dataset], { fhirVersion });
-            return { text: stringify(bundle, values.pretty) };
-        }
-        const resources = dcmjs.fhir.fromPart10(arrayBuffer, { fhirVersion });
-        return { text: stringify(resources, values.pretty) };
-    }
+  if (to === "pdf") {
+    const dataset = DicomMetaDictionary.naturalizeDataset(
+      DicomMessage.readFile(arrayBuffer).dict
+    );
+    const { bytes } = dcmjs.encapsulated.extractEncapsulatedPdf(dataset);
+    return { binary: Buffer.from(bytes) };
+  }
 
-    if (to === "dcm") {
-        const dicomDict = DicomMessage.readFile(arrayBuffer);
-        return { binary: Buffer.from(dicomDict.write()) };
-    }
-
-    if (to === "pdf") {
-        const dataset = DicomMetaDictionary.naturalizeDataset(
-            DicomMessage.readFile(arrayBuffer).dict
-        );
-        const { bytes } = dcmjs.encapsulated.extractEncapsulatedPdf(dataset);
-        return { binary: Buffer.from(bytes) };
-    }
-
-    throw new Error(`unsupported conversion: dicom → ${to}`);
+  throw new Error(`unsupported conversion: dicom → ${to}`);
 }
 
 async function convertPdf({ dcmjs, arrayBuffer, to, values }) {
-    const fhirVersion = values["fhir-version"] || "R4B";
-    const dataset = dcmjs.encapsulated.encapsulatePdf(
-        arrayBuffer,
-        pdfOptionsFromValues(values)
-    );
+  const fhirVersion = values["fhir-version"] || "R4B";
+  const dataset = dcmjs.encapsulated.encapsulatePdf(
+    arrayBuffer,
+    pdfOptionsFromValues(values)
+  );
 
-    if (to === "dcm") {
-        return { binary: dcmjs.data.datasetToBuffer(dataset) };
+  if (to === "dcm") {
+    return { binary: dcmjs.data.datasetToBuffer(dataset) };
+  }
+
+  if (to === "fhir") {
+    if (values.bundle) {
+      const bundle = dcmjs.fhir.toBundle([dataset], { fhirVersion });
+      return { text: stringify(bundle, values.pretty) };
     }
+    const resources = dcmjs.fhir.toFhir(dataset, { fhirVersion });
+    return { text: stringify(resources, values.pretty) };
+  }
 
-    if (to === "fhir") {
-        if (values.bundle) {
-            const bundle = dcmjs.fhir.toBundle([dataset], { fhirVersion });
-            return { text: stringify(bundle, values.pretty) };
-        }
-        const resources = dcmjs.fhir.toFhir(dataset, { fhirVersion });
-        return { text: stringify(resources, values.pretty) };
-    }
-
-    throw new Error(`unsupported conversion: pdf → ${to}`);
+  throw new Error(`unsupported conversion: pdf → ${to}`);
 }
 
 export async function runConvert({
-    dcmjs,
-    positionals,
-    values,
-    stdout,
-    stderr
+  dcmjs,
+  positionals,
+  values,
+  stdout,
+  stderr,
 }) {
-    const [input] = positionals;
-    const to = values.to;
+  const [input] = positionals;
+  const to = values.to;
 
-    if (!input || !to) {
-        stderr(
-            !input
-                ? "convert: missing input file"
-                : "convert: missing --to <format>"
-        );
-        stderr(convertUsage);
-        return 1;
+  if (!input || !to) {
+    stderr(
+      !input ? "convert: missing input file" : "convert: missing --to <format>"
+    );
+    stderr(convertUsage);
+    return 1;
+  }
+
+  try {
+    const kind = sniffKind(input);
+    if (kind === "unknown") {
+      throw new Error(
+        `cannot determine input kind of ${input} (not DICOM, not PDF)`
+      );
     }
 
-    try {
-        const kind = sniffKind(input);
-        if (kind === "unknown") {
-            throw new Error(
-                `cannot determine input kind of ${input} (not DICOM, not PDF)`
-            );
-        }
+    const arrayBuffer = readFileArrayBuffer(input);
+    const result =
+      kind === "dicom"
+        ? await convertDicom({ dcmjs, arrayBuffer, to, values })
+        : await convertPdf({ dcmjs, arrayBuffer, to, values });
 
-        const arrayBuffer = readFileArrayBuffer(input);
-        const result =
-            kind === "dicom"
-                ? await convertDicom({ dcmjs, arrayBuffer, to, values })
-                : await convertPdf({ dcmjs, arrayBuffer, to, values });
-
-        const written = writeOutput({
-            output: values.output,
-            data: result.binary !== undefined ? result.binary : result.text,
-            stdout
-        });
-        if (written && result.binary !== undefined) {
-            stderr(`convert: wrote ${written}`);
-        }
-        return 0;
-    } catch (err) {
-        stderr(`convert: ${err.message}`);
-        return 1;
+    const written = writeOutput({
+      output: values.output,
+      data: result.binary !== undefined ? result.binary : result.text,
+      stdout,
+    });
+    if (written && result.binary !== undefined) {
+      stderr(`convert: wrote ${written}`);
     }
+    return 0;
+  } catch (err) {
+    stderr(`convert: ${err.message}`);
+    return 1;
+  }
 }

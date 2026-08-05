@@ -16,41 +16,41 @@ Strip PHI tags (dcmjs anonymizer defaults) and write a scrubbed copy.
 `;
 
 export async function runAnonymize({
-    dcmjs,
-    positionals,
-    values,
-    stdout,
-    stderr
+  dcmjs,
+  positionals,
+  values,
+  stdout,
+  stderr,
 }) {
-    const [input] = positionals;
-    if (!input) {
-        stderr(anonymizeUsage);
-        return 1;
-    }
+  const [input] = positionals;
+  if (!input) {
+    stderr(anonymizeUsage);
+    return 1;
+  }
 
-    const parsed = path.parse(input);
-    const output =
-        values.output ||
-        path.join(parsed.dir, `${parsed.name}-anon${parsed.ext || ".dcm"}`);
+  const parsed = path.parse(input);
+  const output =
+    values.output ||
+    path.join(parsed.dir, `${parsed.name}-anon${parsed.ext || ".dcm"}`);
 
-    if (path.resolve(output) === path.resolve(input)) {
-        stderr("anonymize: refusing to overwrite the input file in place");
-        return 1;
-    }
+  if (path.resolve(output) === path.resolve(input)) {
+    stderr("anonymize: refusing to overwrite the input file in place");
+    return 1;
+  }
 
-    try {
-        const { DicomMessage } = dcmjs.data;
-        const dicomDict = DicomMessage.readFile(readFileArrayBuffer(input));
-        dcmjs.anonymizer.cleanTags(dicomDict.dict);
-        const written = writeOutput({
-            output,
-            data: Buffer.from(dicomDict.write()),
-            stdout
-        });
-        stdout(`anonymize: wrote ${written}`);
-        return 0;
-    } catch (err) {
-        stderr(`anonymize: ${err.message}`);
-        return 1;
-    }
+  try {
+    const { DicomMessage } = dcmjs.data;
+    const dicomDict = DicomMessage.readFile(readFileArrayBuffer(input));
+    dcmjs.anonymizer.cleanTags(dicomDict.dict);
+    const written = writeOutput({
+      output,
+      data: Buffer.from(dicomDict.write()),
+      stdout,
+    });
+    stdout(`anonymize: wrote ${written}`);
+    return 0;
+  } catch (err) {
+    stderr(`anonymize: ${err.message}`);
+    return 1;
+  }
 }

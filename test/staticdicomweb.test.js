@@ -78,7 +78,11 @@ describe("StaticDicomWebStudy tree navigation", () => {
       },
     ];
     await saveJson(studyDir, "index.json.gz", studyQueryJson);
-    await saveJson(path.join(studyDir, "series"), "index.json.gz", seriesIndexJson);
+    await saveJson(
+      path.join(studyDir, "series"),
+      "index.json.gz",
+      seriesIndexJson
+    );
 
     const access = await DicomAccess.createInstance(root, {});
     const study = await access.queryStudy(studyUID);
