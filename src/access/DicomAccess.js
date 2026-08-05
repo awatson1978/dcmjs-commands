@@ -1,17 +1,25 @@
-import { logger, naturalize, fixValue, getVr, getValue } from "../utils";
-import type { JsonData, StudyNatural, SeriesNatural } from "./DicomWebTypes";
-import { selectSeries, selectInstance } from "./DicomWebTypes";
+import {
+  logger,
+  naturalize,
+  fixValue,
+  getVr,
+  getValue,
+} from "../utils/index.js";
+import { selectSeries, selectInstance } from "./DicomWebTypes.js";
 
 const log = logger.commandsLog.getLogger("DicomAccess");
 const { dicomIssueLog } = logger;
 
-// Abstract base class for DICOM access implementations
-export abstract class DicomAccess {
-  public static readonly childInfo = {
+/**
+ * Abstract base class for DICOM access implementations.
+ * @abstract
+ */
+export class DicomAccess {
+  static childInfo = {
     childUid: "StudyInstanceUID",
   };
 
-  public static DICOMWEB_OPTIONS = {
+  static DICOMWEB_OPTIONS = {
     singleStudy: true,
     singleSeries: true,
     part10: false,
@@ -24,7 +32,7 @@ export abstract class DicomAccess {
     bulkdata: true,
   };
 
-  public static PART10_OPTIONS = {
+  static PART10_OPTIONS = {
     singleStudy: false,
     singleSeries: false,
     part10: true,
@@ -37,11 +45,7 @@ export abstract class DicomAccess {
     bulkdata: false,
   };
 
-  public readonly url: string;
-  public readonly options;
-  protected client;
-
-  private studies = new Map<string, StudyAccess>();
+  studies = new Map();
 
   constructor(url, options) {
     if (typeof url !== "string") {
@@ -60,12 +64,12 @@ export abstract class DicomAccess {
 
     if (scheme.startsWith("http")) {
       // Use lazy imports to prevent loops
-      const { DicomWebAccess } = await import("./DicomWebAccess");
+      const { DicomWebAccess } = await import("./DicomWebAccess.js");
       return new DicomWebAccess(url, options);
     }
     if (scheme.startsWith("file")) {
       const { StaticDicomWebAccess } = await import(
-        "../staticdicomweb/StaticDicomWebAccess"
+        "../staticdicomweb/StaticDicomWebAccess.js"
       );
       // Static dicomweb directory format, basically files in a structure
       // like dicomweb but named so they work in a file system.
@@ -85,7 +89,7 @@ export abstract class DicomAccess {
     return studyAccess;
   }
 
-  public add(studyUID: string): StudyAccess {
+  add(studyUID) {
     let study = this.studies.get(studyUID);
     if (study) {
       return study;
@@ -95,37 +99,26 @@ export abstract class DicomAccess {
     return study;
   }
 
-  public store(study: StudyAccess, options): Promise<StudyAccess> {
+  store(study, options) {
     const studyDestination = this.add(study.studyUID);
     return studyDestination.store(study, options);
   }
 
-  public abstract createAccess(studyUID: string): StudyAccess;
+  /** @abstract Creates a StudyAccess for the given study UID. */
+  createAccess(_studyUID) {
+    throw new Error("createAccess must be implemented by subclasses");
+  }
 }
 
-export abstract class ChildType<ParentT, ChildT, NaturalT> {
-  public readonly uid: string;
-  public url: string;
+/**
+ * Base for the study/series/instance hierarchy. Each level caches its
+ * children in childrenMap and knows how to create/read/store them.
+ * @abstract
+ */
+export class ChildType {
+  childrenMap = new Map();
 
-  public static thisInfo: {
-    name: string;
-    shortUidName: string;
-  };
-
-  public static childInfo: {
-    childUid: string;
-  };
-
-  public readonly childrenMap = new Map<
-    string,
-    ChildType<this, ChildT, unknown>
-  >();
-  public readonly parent: ParentT;
-  public jsonData: JsonData;
-  public natural?: NaturalT;
-  public readonly dicomAccess: DicomAccess;
-
-  constructor(parent: ParentT, uid: string, natural?: NaturalT) {
+  constructor(parent, uid, natural) {
     if (typeof uid !== "string") {
       throw new Error(
         `The provided uid (${JSON.stringify(uid)}) must be a string`
@@ -133,11 +126,11 @@ export abstract class ChildType<ParentT, ChildT, NaturalT> {
     }
     this.uid = uid;
     this.parent = parent;
-    this.dicomAccess = (parent as any).dicomAccess || parent;
+    this.dicomAccess = parent.dicomAccess || parent;
     this.natural = natural;
   }
 
-  public add(child: ChildType<this, ChildT, any>) {
+  add(child) {
     if (!child.childrenMap) {
       throw new Error(
         `Use this.addJson to add another child map type to ${JSON.stringify(child)}`
@@ -160,7 +153,7 @@ export abstract class ChildType<ParentT, ChildT, NaturalT> {
     return newChild;
   }
 
-  public addJson(json) {
+  addJson(json) {
     if (json.childrenMap) {
       throw new Error(
         `Use this.add to add an access instance, have ${JSON.stringify(json.constructor?.childInfo)}`
@@ -184,7 +177,7 @@ export abstract class ChildType<ParentT, ChildT, NaturalT> {
     return newChild;
   }
 
-  public async forEach(childListener) {
+  async forEach(childListener) {
     const processed = [];
     const children = await this.queryChildren();
     for (const child of children) {
@@ -194,9 +187,9 @@ export abstract class ChildType<ParentT, ChildT, NaturalT> {
   }
 
   /**
-   * Store data at hte current level and children levels (if any)
+   * Store data at the current level and children levels (if any)
    */
-  public async store(source, options) {
+  async store(source, options) {
     log.info(
       "Storing source",
       this.name,
@@ -226,26 +219,33 @@ export abstract class ChildType<ParentT, ChildT, NaturalT> {
     return this;
   }
 
-  public get name() {
-    return (this.constructor as any).thisInfo.name;
+  get name() {
+    return this.constructor.thisInfo.name;
   }
 
-  public get childUid() {
-    return (this.constructor as any).childInfo.childUid;
+  get childUid() {
+    return this.constructor.childInfo.childUid;
   }
 
-  public abstract queryChildren(): Promise<ChildT[]>;
-  public abstract createAccess(uid: string, natural?: NaturalT);
-
-  public storeCurrentLevel(_source, _options) {
-    console.warn("Storing current level", this.name, "is unimplemented");
+  /** @abstract Returns the children of this level. */
+  queryChildren() {
+    throw new Error("queryChildren must be implemented by subclasses");
   }
 
-  public isBulkdata(jsonNode) {
+  /** @abstract Creates a child access object. */
+  createAccess(_uid, _natural) {
+    throw new Error("createAccess must be implemented by subclasses");
+  }
+
+  storeCurrentLevel(_source, _options) {
+    log.warn("Storing current level", this.name, "is unimplemented");
+  }
+
+  isBulkdata(jsonNode) {
     return jsonNode && jsonNode.BulkDataURI;
   }
 
-  public getNatural() {
+  getNatural() {
     if (this.natural) {
       return this.natural;
     }
@@ -257,66 +257,55 @@ export abstract class ChildType<ParentT, ChildT, NaturalT> {
   }
 
   /** Gets a child if available */
-  public getChild() {
+  getChild() {
     return this.childrenMap.values().find(() => true);
   }
 }
 
-export abstract class StudyAccess extends ChildType<
-  DicomAccess,
-  SeriesAccess,
-  StudyNatural
-> {
-  public static readonly thisInfo = {
+/** @abstract */
+export class StudyAccess extends ChildType {
+  static thisInfo = {
     shortUidName: "studyUID",
     name: "Study",
   };
 
-  public static readonly childInfo = {
+  static childInfo = {
     childUid: "SeriesInstanceUID",
   };
 
-  public readonly studyUID: string;
-  public readonly url: string;
-
-  constructor(dicomAccess, studyUID, natural?: StudyNormal) {
+  constructor(dicomAccess, studyUID, natural) {
     super(dicomAccess, studyUID, natural);
     this.studyUID = studyUID;
     log.debug("study access url", dicomAccess.url, studyUID);
     this.url = `${dicomAccess.url}/studies/${studyUID}`;
   }
 
-  public storeStudyData(source: StudyAccess) {
+  storeStudyData(_source) {
     log.warn("No study store implemented for", this);
   }
 }
 
 /**
  * A series access allow getting to the series objects within a study.
+ * @abstract
  */
-export abstract class SeriesAccess extends ChildType<
-  StudyAccess,
-  InstanceAccess,
-  SeriesNatural
-> {
-  public static readonly thisInfo = {
+export class SeriesAccess extends ChildType {
+  static thisInfo = {
     shortUidName: "seriesUID",
     name: "Series",
   };
 
-  public static readonly childInfo = {
+  static childInfo = {
     childUid: "SOPInstanceUID",
   };
 
-  public readonly seriesUID: string;
-
-  constructor(parent, seriesUID, natural?: SeriesNatural) {
+  constructor(parent, seriesUID, natural) {
     super(parent, seriesUID, natural);
     this.url = `${parent.url}/series/${seriesUID}`;
     this.seriesUID = seriesUID;
   }
 
-  public getNumberOfFrames() {
+  getNumberOfFrames() {
     let numberOfFrames = 0;
     for (const instance of this.childrenMap.values()) {
       const natural = instance.getNatural();
@@ -330,7 +319,7 @@ export abstract class SeriesAccess extends ChildType<
   }
 
   /** Returns the json data for the current series query */
-  public createSeriesQuery() {
+  createSeriesQuery() {
     const naturalSeries = selectSeries(this.getChild().getNatural());
     naturalSeries.NumberOfSeriesRelatedInstances = this.childrenMap.size;
     naturalSeries.NumberOfFrames = this.getNumberOfFrames();
@@ -341,57 +330,52 @@ export abstract class SeriesAccess extends ChildType<
    * Adds all the instance natural items to natural inside the
    * instances object, considering each one as though it were a frame.
    */
-  public addInstanceNaturalQuery(
-    natural,
-    children = [...this.childrenMap.values()]
-  ) {
+  addInstanceNaturalQuery(natural, children = [...this.childrenMap.values()]) {
     natural.Instances = children;
   }
 }
 
-export class InstanceAccess extends ChildType<SeriesAccess, object, object> {
-  public static readonly thisInfo = {
+export class InstanceAccess extends ChildType {
+  static thisInfo = {
     shortUidName: "sopUID",
     name: "Instance",
   };
 
-  public static readonly childInfo = {
+  static childInfo = {
     childUid: "FrameNumber",
   };
 
-  public readonly sopInstanceUID: string;
-
-  constructor(parent: SeriesAccess, sopUID: string, natural?) {
+  constructor(parent, sopUID, natural) {
     super(parent, sopUID, natural);
     this.url = `${parent.url}/instances/${sopUID}`;
     this.sopInstanceUID = sopUID;
   }
 
-  public async queryChildren() {
+  async queryChildren() {
     return [];
   }
 
-  public async openFrame(frame = 1, _options?) {
+  async openFrame(_frame = 1, _options) {
     throw new Error("Unsupported operation: openFrame");
   }
 
-  public createAccess(sopUID, natural?) {
+  createAccess(_sopUID, _natural) {
     return null;
   }
 
-  public openBulkdata(_tag, _jsonNode, _options) {
+  openBulkdata(_tag, _jsonNode, _options) {
     throw new Error("Open bulkdata not implemented");
   }
 
   /** Returns the json data for the current series query */
-  public createInstanceQuery() {
+  createInstanceQuery() {
     return selectInstance(this.getNatural());
   }
 
   /**
    * Imports BulkDataURI and frame data into the json object.
    */
-  public async importBulkdata(json, options, fmi?) {
+  async importBulkdata(json, options, fmi) {
     if (!fmi) {
       fmi = {
         "00020010": { vr: "UI", Value: ["1.2.840.10008.1.2.1"] },
@@ -436,7 +420,7 @@ export class InstanceAccess extends ChildType<SeriesAccess, object, object> {
     return fmi;
   }
 
-  public async fillFrames(json, key, value, fmi) {
+  async fillFrames(json, _key, value, fmi) {
     const numberOfFrames = getValue(json, "00280008") || 1;
     value.vr = "OB";
 
@@ -459,7 +443,7 @@ export class InstanceAccess extends ChildType<SeriesAccess, object, object> {
     };
   }
 
-  public async readBulkdata(json, key, value, fmi) {
+  async readBulkdata(json, key, value, _fmi) {
     const bulkdata = await this.openBulkdata(key, value, { asBuffer: true });
     value.Value = [bulkdata.buffer];
   }

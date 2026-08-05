@@ -17,8 +17,6 @@ export default [
     },
   },
   {
-    // TypeScript sources are converted to JS in later commits; until then
-    // they are bun-era legacy and excluded from linting.
-    ignores: ["coverage/", "dist/", "**/*.ts"],
+    ignores: ["coverage/", "dist/"],
   },
 ];

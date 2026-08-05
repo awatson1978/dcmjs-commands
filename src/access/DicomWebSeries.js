@@ -1,11 +1,11 @@
-import { SeriesAccess } from "../access/DicomAccess";
-import { naturalize, logger } from "../utils";
-import { DicomWebInstance } from "./DicomWebInstance";
+import { SeriesAccess } from "../access/DicomAccess.js";
+import { naturalize, logger } from "../utils/index.js";
+import { DicomWebInstance } from "./DicomWebInstance.js";
 
-const log = logger.commandsLog.getLogger("StaticDicomWeb", "Series");
+const log = logger.commandsLog.getLogger("DicomWeb", "Series");
 
 export class DicomWebSeries extends SeriesAccess {
-  public async queryChildren() {
+  async queryChildren() {
     if (this.childrenMap.size) {
       return [...this.childrenMap.values()];
     }
@@ -13,14 +13,8 @@ export class DicomWebSeries extends SeriesAccess {
       studyInstanceUID: this.parent.uid,
       seriesInstanceUID: this.uid,
     });
-    console.warn("instanceData #", json.length);
     const naturalJson = naturalize(json);
-    console.warn(
-      "There are",
-      naturalJson.length,
-      "instances in series",
-      this.uid
-    );
+    log.info("There are", naturalJson.length, "instances in series", this.uid);
     return [
       ...naturalJson.map((instance, idx) => {
         log.trace("Adding instance", instance);
@@ -31,7 +25,7 @@ export class DicomWebSeries extends SeriesAccess {
     ];
   }
 
-  public createAccess(sopUID, natural?) {
+  createAccess(sopUID, natural) {
     log.trace("Creating instance DW access", sopUID, this.url, natural);
     return new DicomWebInstance(this, sopUID, natural);
   }

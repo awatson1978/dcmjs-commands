@@ -1,31 +1,24 @@
-import { StudyAccess, SeriesAccess } from "../access/DicomAccess";
-import { naturalize, logger } from "../utils";
+import { StudyAccess } from "../access/DicomAccess.js";
+import { naturalize, logger } from "../utils/index.js";
 import { JSDOM } from "jsdom";
-import { DicomWebSeries } from "./DicomWebSeries";
+import { DicomWebSeries } from "./DicomWebSeries.js";
 
+// dicomweb-client is XHR-based; provide an XMLHttpRequest for Node.
 const jsdomDoc = new JSDOM(``);
-
 global.window = jsdomDoc.window;
-// global.window = jsdomDoc.defaultView;
-// global.document = window.document;
-// global.navigator = window.navigator;
-global.XMLHttpRequest = window.XMLHttpRequest;
+global.XMLHttpRequest = jsdomDoc.window.XMLHttpRequest;
 
 const log = logger.commandsLog.getLogger("DicomWeb", "Study");
 
 export class DicomWebStudy extends StudyAccess {
-  constructor(parent, uid, natural) {
-    super(parent, uid, natural);
-  }
-
-  public async read() {
-    log.warn("Querying dicomweb for study", this.uid);
+  async read() {
+    log.info("Querying dicomweb for study", this.uid);
     const json = await this.dicomAccess.client.searchForStudies({
       queryParams: {
         studyInstanceUID: this.uid,
       },
     });
-    log.warn("Read study query result", json?.length);
+    log.info("Read study query result", json?.length);
     if (!json) {
       throw new Error(`No study results found for ${this.uid}`);
     }
@@ -33,12 +26,12 @@ export class DicomWebStudy extends StudyAccess {
     this.natural = naturalize(json);
   }
 
-  public createAccess(sopUID: string, natural) {
-    log.debug("Creating access on sopUID", sopUID);
-    return new DicomWebSeries(this, sopUID, natural);
+  createAccess(seriesUID, natural) {
+    log.debug("Creating access on seriesUID", seriesUID);
+    return new DicomWebSeries(this, seriesUID, natural);
   }
 
-  public async queryChildren(): Promise<SeriesAccess[]> {
+  async queryChildren() {
     if (this.childrenMap.size) {
       return [...this.childrenMap.values()];
     }
