@@ -23,11 +23,24 @@ describe("DicomAccess.createInstance scheme routing", () => {
   });
 
   test("http URLs route to DicomWebAccess", async () => {
-    const access = await DicomAccess.createInstance(
-      "http://example.com/dicomweb",
-      {}
-    );
-    expect(access.constructor.name).toBe("DicomWebAccess");
+    // Stub the XHR global so the lazy jsdom bootstrap is skipped — jest's
+    // CJS loader cannot load jsdom 26's ESM-only transitive deps. Under
+    // plain node the bootstrap runs for real (covered by manual spike).
+    const hadXhr = "XMLHttpRequest" in globalThis;
+    if (!hadXhr) {
+      globalThis.XMLHttpRequest = class XMLHttpRequestStub {};
+    }
+    try {
+      const access = await DicomAccess.createInstance(
+        "http://example.com/dicomweb",
+        {}
+      );
+      expect(access.constructor.name).toBe("DicomWebAccess");
+    } finally {
+      if (!hadXhr) {
+        delete globalThis.XMLHttpRequest;
+      }
+    }
   });
 
   test("unknown schemes throw", async () => {

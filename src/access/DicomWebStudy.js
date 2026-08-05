@@ -1,12 +1,6 @@
 import { StudyAccess } from "../access/DicomAccess.js";
 import { naturalize, logger } from "../utils/index.js";
-import { JSDOM } from "jsdom";
 import { DicomWebSeries } from "./DicomWebSeries.js";
-
-// dicomweb-client is XHR-based; provide an XMLHttpRequest for Node.
-const jsdomDoc = new JSDOM(``);
-global.window = jsdomDoc.window;
-global.XMLHttpRequest = jsdomDoc.window.XMLHttpRequest;
 
 const log = logger.commandsLog.getLogger("DicomWeb", "Study");
 
