@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { readDicom, instanceDicom, dumpDicom } from '../src/index.js';
+import { readDicom, dumpDicom } from '../src/index.js';
 
 const program = new Command();
 

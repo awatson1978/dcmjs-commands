@@ -61,7 +61,7 @@ export async function queryDownloads(wadoUrl, options) {
   return [];
 }
 
-export function store(path, data, options) {
+export function store(path, data, _options) {
   log.info("Storing data", path);
   log.debug(JSON.stringify(data, null, 2));
 }

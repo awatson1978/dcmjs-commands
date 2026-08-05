@@ -45,7 +45,7 @@ export function dumpData(data, options, indent = "") {
   }
 }
 
-export function valueToString(value, options) {
+export function valueToString(value, _options) {
   const { Value: values, vr, InlineBinary, BulkDataURI } = value;
   if (InlineBinary) {
     return `Inline Binary ${InlineBinary.substring(0, Math.min(InlineBinary.length, 32))}${InlineBinary.length > 31 ? "..." : ""} (${(InlineBinary.length * 3) / 4})`;
