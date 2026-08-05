@@ -1,5 +1,5 @@
 import fs from "fs";
-import dcmjs from "dcmjs";
+import dcmjs from "./dcmjsBundle.js";
 
 export * as utils from "./utils/index.js";
 export * as dicomweb from "./dicomweb.js";

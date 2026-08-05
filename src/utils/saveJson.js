@@ -1,4 +1,4 @@
-import { writeStream } from "./writeStream";
+import { writeStream } from "./writeStream.js";
 import { Readable } from "stream";
 import { finished } from "stream/promises";
 
