@@ -28,16 +28,13 @@ export const commandsLog = dcmjsLog.getLogger("commands");
 /** Dicom issue log is for reporting inconsistencies and issues with DICOM logging */
 export const dicomIssueLog = getLogger("dicom", "issue");
 
-export function setOptions(options) {
+export function setOptions(options = {}) {
   if (options.loglevel) {
     loglevel.setLevel(options.loglevel);
   } else if (options.debug) {
-    console.log("Setting loglevel to debug");
     loglevel.setLevel("debug");
-    console.log(
-      "commands level is",
-      loglevel.getLogger("dcmjs", "commands").getLevel(),
-    );
+  } else if (options.quiet) {
+    loglevel.setLevel("error");
   } else {
     loglevel.setLevel("info");
   }
