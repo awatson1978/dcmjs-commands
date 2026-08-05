@@ -18,41 +18,41 @@ function capture() {
     return { lines, write: text => lines.push(text) };
 }
 
-test("dump prints the naturalized dataset with binary summarized", async () => {
+async function dump(values) {
     const out = capture();
     const err = capture();
     const code = await runDump({
         dcmjs,
         positionals: [FIXTURE],
-        values: {},
+        values,
         stdout: out.write,
         stderr: err.write
     });
+    return { code, text: out.lines.join("\n"), err: err.lines.join("\n") };
+}
 
+test("dump default prints tag/VR lines (legacy-compatible)", async () => {
+    const { code, text } = await dump({});
     expect(code).toBe(0);
-    const text = out.lines.join("\n");
+    expect(text).toMatch(/\(0010,0010\)\s+PN\s+PatientName/);
+    expect(text).toMatch(/\(0002,0010\)\s+UI\s+TransferSyntaxUID/);
+    expect(text).toContain("Fall 3");
+});
+
+test("dump --raw is an accepted alias of the default", async () => {
+    const { code, text } = await dump({ raw: true });
+    expect(code).toBe(0);
+    expect(text).toMatch(/\(0010,0010\)\s+PN\s+PatientName/);
+});
+
+test("dump --json prints the naturalized dataset with binary summarized", async () => {
+    const { code, text } = await dump({ json: true });
+    expect(code).toBe(0);
     expect(text).toContain("Fall 3");
     expect(text).toContain("[binary");
     // Parseable JSON — binary was replaced, not silently emptied
     const parsed = JSON.parse(text);
     expect(parsed.Modality).toBe("MR");
-});
-
-test("dump --raw prints tag/VR lines", async () => {
-    const out = capture();
-    const err = capture();
-    const code = await runDump({
-        dcmjs,
-        positionals: [FIXTURE],
-        values: { raw: true },
-        stdout: out.write,
-        stderr: err.write
-    });
-
-    expect(code).toBe(0);
-    const text = out.lines.join("\n");
-    expect(text).toMatch(/\(0010,0010\)\s+PN\s+PatientName/);
-    expect(text).toMatch(/\(0002,0010\)\s+UI\s+TransferSyntaxUID/);
 });
 
 test("dump errors cleanly on a missing file", async () => {

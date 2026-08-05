@@ -1,14 +1,15 @@
-// src/cli.mjs
+// src/cli.js
 //
-// Command router for the dcmjs CLI. Parsing is node:util parseArgs
-// (built into Node >= 18.3 — zero dependencies, matching the repo's
-// no-arg-parsing-deps philosophy; see scripts/corpus-runner.mjs).
-// Commands receive an injected `dcmjs` so bin/ can pass the built bundle
-// while tests pass src/index.js directly.
+// Command router for the dcmjs bin. Parsing is node:util parseArgs;
+// commands receive an injected `dcmjs` (the built bundle from bin/, or a
+// test-supplied instance) plus stdout/stderr sinks, and return exit codes.
+// The dicomwebjs bin keeps commander for its legacy surface — this router
+// only serves the local-file `dcmjs` commands.
 
 import { parseArgs } from "node:util";
 import { runConvert, convertUsage } from "./commands/convert.js";
 import { runDump, dumpUsage } from "./commands/dump.js";
+import { runInstance, instanceUsage } from "./commands/instance.js";
 import { runAnonymize, anonymizeUsage } from "./commands/anonymize.js";
 import { runValidate, validateUsage } from "./commands/validate.js";
 
@@ -16,7 +17,8 @@ export const usage = `usage: dcmjs <command> [options]
 
 Commands:
     convert     convert between DICOM, PDF, FHIR, and JSON representations
-    dump        print a DICOM file's dataset
+    dump        print a DICOM file's dataset (tag lines; --json for JSON)
+    instance    print a DICOM file's dict as tag-keyed DICOM JSON
     anonymize   strip PHI tags and write a scrubbed copy
     validate    parse files/directories and report failures
 
@@ -45,7 +47,16 @@ const COMMANDS = {
         run: runDump,
         usage: dumpUsage,
         options: {
+            json: { type: "boolean", default: false },
             raw: { type: "boolean", default: false },
+            help: { type: "boolean", short: "h", default: false }
+        }
+    },
+    instance: {
+        run: runInstance,
+        usage: instanceUsage,
+        options: {
+            pretty: { type: "boolean", short: "p", default: false },
             help: { type: "boolean", short: "h", default: false }
         }
     },

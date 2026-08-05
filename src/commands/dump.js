@@ -1,16 +1,20 @@
-// src/commands/dump.mjs
+// src/commands/dump.js
 //
-// dcmjs dump <file.dcm> [--raw]
-// Default: naturalized dataset as pretty JSON with binary summarized.
-// --raw:   "(GGGG,EEEE) VR Keyword: value" lines, meta group first.
+// dcmjs dump <file.dcm> [--json]
+// Default: "(GGGG,EEEE) VR Keyword: value" tag lines, meta group first —
+// the legacy dcmjs-commands dump behavior, via the improved dumper.
+// --json:  naturalized dataset as pretty JSON with binary summarized.
+// --raw:   accepted alias of the default (kept for compatibility with the
+//          ported CLI's flag).
 
 import { readFileArrayBuffer, binaryReplacer } from "../io.js";
 
-export const dumpUsage = `usage: dcmjs dump <file.dcm> [--raw]
+export const dumpUsage = `usage: dcmjs dump <file.dcm> [--json]
 
 Print a DICOM file's dataset to stdout.
 
-    --raw    tag/VR lines instead of naturalized JSON
+    --json   naturalized JSON instead of tag/VR lines
+    --raw    tag/VR lines (the default; kept for compatibility)
 `;
 
 function formatValue(element) {
@@ -77,15 +81,16 @@ export async function runDump({ dcmjs, positionals, values, stdout, stderr }) {
         const { DicomMessage, DicomMetaDictionary } = dcmjs.data;
         const dicomDict = DicomMessage.readFile(readFileArrayBuffer(input));
 
-        if (values.raw) {
-            const dictionary = DicomMetaDictionary.dictionary;
-            dumpGroup(dicomDict.meta, { dictionary, stdout });
-            dumpGroup(dicomDict.dict, { dictionary, stdout });
-        } else {
+        if (values.json) {
             const dataset = DicomMetaDictionary.naturalizeDataset(
                 dicomDict.dict
             );
             stdout(JSON.stringify(dataset, binaryReplacer("summary"), 4));
+        } else {
+            // Default (and --raw alias): legacy-style tag lines
+            const dictionary = DicomMetaDictionary.dictionary;
+            dumpGroup(dicomDict.meta, { dictionary, stdout });
+            dumpGroup(dicomDict.dict, { dictionary, stdout });
         }
         return 0;
     } catch (err) {
