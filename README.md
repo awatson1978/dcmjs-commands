@@ -1,62 +1,140 @@
 # dcmjs-commands
 
-To install, clone the directory and run:
+Command line tools for [dcmjs](https://github.com/awatson1978/dcmjs) and
+DICOMweb: parse, dump, convert, anonymize, and validate DICOM Part 10 files,
+wrap and extract PDFs (the PACS "PDF in / PDF out" workflow), emit FHIR and
+DICOMweb JSON, and download studies from DICOMweb servers into the Static
+DICOMweb file layout.
 
+Three bins ship with the package:
+
+| Bin | Purpose |
+|-----|---------|
+| `dcmjs` | local Part 10 files: dump, instance, convert, anonymize, validate |
+| `dicomwebjs` | DICOMweb sources: dump, instance, download, part10 |
+| `dimsejs` | DIMSE networking — **experimental stub, not implemented** |
+
+## Install
+
+Requires Node >= 22.13. The `dcmjs` dependency points at the sibling
+checkout `file:../dcmjs` (the awatson1978 fork, `development` branch), which
+must be built first:
+
+```bash
+# sibling checkout, one time
+git clone -b development https://github.com/awatson1978/dcmjs.git ../dcmjs
+(cd ../dcmjs && pnpm install && pnpm run build)
+
+# then this package
+npm install
+
+# optional: global link so `dcmjs` / `dicomwebjs` are on your PATH
+npm link
 ```
-bun install
-bun run build
-bun run link:exec
+
+## dcmjs commands
+
+### dump
+
+```bash
+dcmjs dump scan.dcm            # tag lines: (GGGG,EEEE) VR Keyword: value
+dcmjs dump scan.dcm --json     # naturalized dataset as pretty JSON
 ```
 
-# dcmjs commands
+### instance
 
-## dump `filename`
-
-```
-dcmjs dump <part10file>
+```bash
+dcmjs instance scan.dcm --pretty   # tag-keyed DICOM JSON of the dict
 ```
 
-# dicomwebjs commands
+### convert
 
-## dump `url`
+```bash
+dcmjs convert scan.dcm --to fhir --pretty        # Patient + ImagingStudy
+dcmjs convert scan.dcm --to dicomweb-json        # DICOM JSON model
+dcmjs convert scan.dcm --to json                 # naturalized JSON
+dcmjs convert scan.dcm --to dcm -o copy.dcm      # Part 10 round trip
 
+# PDF in: wrap a PDF into a DICOM Encapsulated PDF instance
+dcmjs convert report.pdf --to dcm -o report.dcm \
+    --patient-name "Doe^Jane" --patient-id MRN-42 --title "Discharge Summary"
+
+# PDF out: extract the PDF from a PACS-sourced Encapsulated PDF instance
+dcmjs convert report.dcm --to pdf -o report.pdf
+
+# PDFs as FHIR DocumentReference (also works for .dcm carrying a PDF)
+dcmjs convert report.pdf --to fhir
 ```
-# Example series retrieve/dump
+
+### anonymize
+
+```bash
+dcmjs anonymize scan.dcm -o anon.dcm    # default output: <input>-anon.dcm
+```
+
+### validate
+
+```bash
+dcmjs validate ./studies/               # recursive; exit 1 on any failure
+dcmjs validate scan.dcm --json report.json --quiet
+```
+
+## dicomwebjs commands
+
+### dump / instance
+
+```bash
+# Series query from a DICOMweb server
 dicomwebjs dump https://d33do7qe4w26qo.cloudfront.net/dicomweb/studies/1.3.6.1.4.1.14519.5.2.1.4792.2001.105216574054253895819671475627/series
-# Example metadata retrieve/dump
+
+# Metadata retrieve
 dicomwebjs dump https://d33do7qe4w26qo.cloudfront.net/dicomweb/studies/1.3.6.1.4.1.14519.5.2.1.4792.2001.105216574054253895819671475627/series/1.3.6.1.4.1.14519.5.2.1.4792.2001.323835191362867057104216682000/metadata
 
-# Example file retrieve
-dicomwebjs dump testdata/studies/1.2.276.1.74.1.2.132733202464108492637644434464108492/series/2.16.840.1.113883.3.8467.132733202477512857637644434477512857/metadata.gz
+# Local Static DICOMweb files (plain or .gz)
+dicomwebjs dump studies/<studyUID>/series/<seriesUID>/metadata.gz
 ```
 
-## download `url`
+### download
 
-dicomwebjs can be used to download a directory of file locations. By default it will fetch everything at and below the specified URL, plus referenced bulkdata. Bulkdata will be
-placed in the `studies/<studyUID>/bulkdata` directory, with metadata references to the bulkdata using the `../../bulkdata/<path>` relative URI locations.
+Downloads a study into the Static DICOMweb file layout. Bulkdata is stored
+under `studies/<studyUID>/bulkdata/` with `../../bulkdata/<hash-path>`
+relative references.
 
-## part10 `url` --StudyInstanceUID=studyUID
-
-dicomwebjs can be used to download part10 files from remote dicomweb servers in the static wado format.
-
-### Example Commands
-
-```
-dicomwebjs download https://d33do7qe4w26qo.cloudfront.net/dicomweb/studies/1.3.6.1.4.1.14519.5.2.1.4792.2001.105216574054253895819671475627 -d ~/dicomweb
+```bash
+dicomwebjs download https://server/dicomweb -S <StudyInstanceUID> -d ~/dicomweb
 ```
 
+### part10
+
+Converts DICOMweb data into binary Part 10 files.
+
+```bash
+dicomwebjs part10 https://server/dicomweb -S <StudyInstanceUID> -d ./downloads
 ```
-dicomwebjs part10  https://d14fa38qiwhyfd.cloudfront.net/dicomweb --StudyInstanceUID=1.2.840.113619.2.290.3.3767434740.838.1526468636.966 -d ./downloads
+
+### Static DICOMweb file locations
+
+Tree-structured file sources follow the Static DICOMweb format, rooted at
+`studies/` under the base directory:
+
+- `studies/index.json.gz` — QIDO response index for the studies
+- `studies/<studyUID>/index.json.gz` — the study's index entry
+- `studies/<studyUID>/series/index.json.gz` — the series QIDO response
+- `studies/<studyUID>/series/<seriesUID>/metadata.gz` — the metadata WADO response
+- `studies/<studyUID>/bulkdata/...` — bulkdata files
+- `studies/<studyUID>/series/<seriesUID>/instances/<sopUID>/frames/<n>.mht[.gz]` — frame data
+
+Uncompressed variants are accepted, but will not be found on a search.
+
+## Development
+
+```bash
+npm test              # jest (native ESM)
+npm run lint          # eslint
+npm run format:check  # prettier
 ```
 
-### File Locations
-
-Files dicomweb can be paths to JSON files. However, tree structure data must follow the Static DICOMweb format, specifically starting at `studies/` relative to the base directory, and containing some/all of the ones below.
-Note that un-compressed files are acceptable as well, but will not be found on a search.
-
-- `studies/index.json.gz` - an index in DICOMweb QIDO response format for the studies
-- `studies/<studyUID>/index.json.gz` - the index entry of this study
-- `studies/<studyUID>/series/index.json.gz` - the series QIDO response
-- `studies/<studyUID>/series/<seriesUID>/metadata.gz` - the metadata WADO response
-- `studies/<studyUID>/bulkdata/...` - bulkdata files
-- `studies/<studyUID>/series/<seriesUID>/instances/<instanceUID>/frame/<frameNumber>` - compressed frame data
+Tests use the committed fixture `test/fixtures/sample-dicom.dcm` plus
+synthesized data — no network and no submodules. CI (GitHub Actions) checks
+out and builds the sibling dcmjs fork before running the suite on Node 22
+and 24.
