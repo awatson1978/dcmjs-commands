@@ -34,6 +34,10 @@ npm link
 
 ## dcmjs commands
 
+Run `dcmjs --help` for the command list, and `dcmjs <command> --help` for
+the full options of each command. The sections below show common
+invocations, not every flag.
+
 ### dump
 
 ```bash
