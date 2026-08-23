@@ -12,6 +12,7 @@ import { runDump, dumpUsage } from "./commands/dump.js";
 import { runInstance, instanceUsage } from "./commands/instance.js";
 import { runAnonymize, anonymizeUsage } from "./commands/anonymize.js";
 import { runValidate, validateUsage } from "./commands/validate.js";
+import { runFilter, filterUsage } from "./commands/filter.js";
 
 export const usage = `usage: dcmjs <command> [options]
 
@@ -20,6 +21,7 @@ Commands:
     dump        print a DICOM file's dataset (tag lines; --json for JSON)
     instance    print a DICOM file's dict as tag-keyed DICOM JSON
     anonymize   strip PHI tags and write a scrubbed copy
+    filter      stream a file through an event-stream filter chain
     validate    parse files/directories and report failures
 
 Run 'dcmjs <command> --help' for command options.
@@ -65,6 +67,17 @@ const COMMANDS = {
     usage: anonymizeUsage,
     options: {
       output: { type: "string", short: "o" },
+      help: { type: "boolean", short: "h", default: false },
+    },
+  },
+  filter: {
+    run: runFilter,
+    usage: filterUsage,
+    options: {
+      output: { type: "string", short: "o" },
+      set: { type: "string", multiple: true },
+      drop: { type: "string", multiple: true },
+      module: { type: "string", multiple: true },
       help: { type: "boolean", short: "h", default: false },
     },
   },
