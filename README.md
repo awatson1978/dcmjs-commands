@@ -10,9 +10,12 @@ Three bins ship with the package:
 
 | Bin | Purpose |
 |-----|---------|
-| `dcmjs` | local Part 10 files: dump, instance, convert, anonymize, validate |
+| `dcmjs` | local Part 10 files: dump, instance, convert, anonymize, validate, filter |
 | `dicomwebjs` | DICOMweb sources: dump, instance, download, part10 |
 | `dimsejs` | DIMSE networking — **experimental stub, not implemented** |
+
+For a worked tour of every command with runnable examples, see
+[EXAMPLES.md](EXAMPLES.md).
 
 ## Install
 
