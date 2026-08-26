@@ -70,6 +70,42 @@ dcmjs convert consent.pdf --to dcm -o consent.dcm \
   --title "Signed consent" --study-uid 1.2.840.113619.2.5.1762583153.215519.978957063.78
 ```
 
+## `dcmjs convert` — images back into DICOM
+
+The forward-migration path: a PNG or JPEG exported from an old DICOM file,
+traveling with its metadata as DICOM JSON (any wrapper document works — the
+converter plucks tag-keyed `{vr, Value}` entries wherever they sit and tells
+you what it ignored).
+
+```bash
+# 001.json next to 001.png is discovered automatically
+dcmjs convert 001.png --to dcm -o rebuilt/001.dcm
+# convert: note: ignored non-DICOM sidecar keys: png, provenance
+
+dcmjs dump rebuilt/001.dcm | grep -E "0008,0008|0020,000D"
+# (0008,0008) CS ImageType: DERIVED\SECONDARY   ← source instance detected
+# (0020,000D) UI StudyInstanceUID: 1.3.12...    ← original study preserved
+```
+
+Conformance is enforced by the dcmjs library, not left to the caller: the
+actual image geometry always beats metadata claims (a wrong `Rows` is a hard
+error naming both numbers), and when the metadata identifies the original
+instance the rebuilt file gets a **fresh SOPInstanceUID**, a
+`SourceImageSequence` reference, and `LossyImageCompression 01` — original
+UIDs are never reused for rebuilt pixels.
+
+An 8-bit export of a 16-bit original can approximately invert the window
+rendering when the metadata carries WindowCenter/WindowWidth:
+
+```bash
+dcmjs convert 001.png --to dcm -o rebuilt/001.dcm --restore-values
+# convert: restored ~12-bit stored values from WindowCenter 312 / WindowWidth 673 (lossy 8-bit source)
+```
+
+Gray-stored-as-RGB (the usual screenshot/export shape) collapses to
+MONOCHROME2 automatically; real color stays RGB. A bare image with no
+metadata becomes a plain Secondary Capture instance.
+
 ## `dcmjs validate` — sweep a corpus
 
 Parse everything under a directory and report what fails — useful before
