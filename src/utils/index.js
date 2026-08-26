@@ -9,3 +9,4 @@ export * from "./getVr.js";
 export * from "./fixValue.js";
 export * from "./streamToBuffer.js";
 export * from "./getValue.js";
+export * from "./exitOnEpipe.js";

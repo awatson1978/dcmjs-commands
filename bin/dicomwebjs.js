@@ -8,6 +8,10 @@ import { Command } from "commander";
 import { dicomweb, instanceDicom, dumpDicom } from "../src/index.js";
 import { registerTransferCommands } from "../src/commands/webTransfer.js";
 import { setOptions } from "../src/utils/logger.js";
+import { exitOnEpipe } from "../src/utils/exitOnEpipe.js";
+
+// `dicomwebjs dump url | head` must end quietly when head closes the pipe
+exitOnEpipe();
 
 const program = new Command();
 

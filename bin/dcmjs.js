@@ -7,8 +7,12 @@
 
 import { createRequire } from "node:module";
 import { runCli } from "../src/cli.js";
+import { exitOnEpipe } from "../src/utils/exitOnEpipe.js";
 
 const require = createRequire(import.meta.url);
+
+// `dcmjs dump file | head` must end quietly when head closes the pipe
+exitOnEpipe();
 
 let dcmjs;
 try {
