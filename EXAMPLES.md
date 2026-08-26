@@ -119,6 +119,33 @@ dcmjs validate ./incoming --quiet
 dcmjs validate ./incoming --json report.json   # full machine-readable report
 ```
 
+## `dcmjs dicomdir` — index a tree onto media
+
+Build a DICOMDIR — the Media Storage Directory a CD/DVD viewer reads — for
+every DICOM file under a directory. Record keys come from a partial parse
+that stops before PixelData, so large studies index in moments; the byte
+offsets inside the directory records are computed exactly (measure-then-
+write in dcmjs.media), not left as zeros.
+
+```bash
+dcmjs dicomdir ./study
+# dicomdir: 480 instances, 8 series, 1 study, 1 patient → ./study/DICOMDIR (198,364 bytes)
+
+dcmjs dump ./study/DICOMDIR | head -6   # it's a DICOM file; dump reads it
+```
+
+DICOMDIR referenced file names must be ISO 9660 level 1 (A–Z 0–9 _, max 8
+chars per component). Real trees rarely are — by default that's a warning,
+`--strict` makes it an error, and `--copy` sidesteps it by staging a
+conformant CD-style tree:
+
+```bash
+dcmjs dicomdir ./study --copy ./cd
+# ./cd/DICOM/IM000001 ... IM000480, plus ./cd/DICOMDIR referencing them
+
+dcmjs dicomdir ./study --json | jq .summary   # dry run: records, warnings, skips
+```
+
 ## `dcmjs anonymize` — strip PHI (current form)
 
 Today's anonymize applies the dcmjs anonymizer's default tag rules and writes
