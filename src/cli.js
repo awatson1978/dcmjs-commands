@@ -71,6 +71,7 @@ const COMMANDS = {
     usage: anonymizeUsage,
     options: {
       output: { type: "string", short: "o" },
+      "dry-run": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   },
