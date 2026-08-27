@@ -37,16 +37,20 @@ APIs, pipeable CLI, SMART-context inputs), see
 
 ## Install
 
-Requires Node >= 22.13. The `dcmjs` dependency points at the sibling
-checkout `file:../dcmjs` (the awatson1978 fork, `development` branch), which
-must be built first:
+Requires Node >= 22.13. The two repositories are cloned side by side —
+the `dcmjs` dependency here points at the sibling checkout `file:../dcmjs`
+(the awatson1978 fork, `development` branch), which must be built first:
 
 ```bash
-# sibling checkout, one time
-git clone -b development https://github.com/awatson1978/dcmjs.git ../dcmjs
-(cd ../dcmjs && pnpm install && pnpm run build)
+# this package and its sibling, side by side
+git clone -b development https://github.com/awatson1978/dcmjs-commands.git
+git clone -b development https://github.com/awatson1978/dcmjs.git
 
-# then this package
+# build the sibling first
+(cd dcmjs && pnpm install && pnpm run build)
+
+# then install this package
+cd dcmjs-commands
 npm install
 
 # optional: global link so the bins are on your PATH
