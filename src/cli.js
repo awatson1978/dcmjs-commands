@@ -117,6 +117,10 @@ const COMMANDS = {
     options: {
       directory: { type: "string", short: "d" },
       study: { type: "string", short: "S" },
+      fhir: { type: "boolean", default: false },
+      "fhir-patient": { type: "string" },
+      "fhir-encounter": { type: "string" },
+      "wado-root": { type: "string" },
       verbose: { type: "boolean", default: false },
       debug: { type: "boolean", default: false },
       quiet: { type: "boolean", default: false },

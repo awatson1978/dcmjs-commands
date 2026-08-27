@@ -177,6 +177,40 @@ counts) instead of a stack trace. For heavyweight publishing (thumbnails,
 deduplicated metadata trees, a server), `@radicalimaging/static-wado-creator`'s
 `mkdicomweb` remains the production tool — this is the right-sized native path.
 
+### dicomweb+fhir: `--fhir`
+
+The SMART-imaging pattern in one output: FHIR resources for discovery and
+identity, the DICOMweb tree for pixels. `--fhir` adds a `fhir/` layer —
+Patient, ImagingStudy (id = StudyInstanceUID, `subject` → the Patient,
+`endpoint` → a DICOM WADO-RS Endpoint), and a **transaction Bundle** any
+FHIR server loads in one request:
+
+```bash
+dcmjs dicomweb ./study -d ./web --fhir \
+  --fhir-patient jane-fox.json \
+  --wado-root https://pacs.example.org/dicomweb
+# dicomweb: fhir: Patient/22446688, ImagingStudy/1.3.12... → ./web/fhir
+
+curl -X POST https://fhir.example.org/ -H 'Content-Type: application/fhir+json' \
+  -d @./web/fhir/Bundle.json    # idempotent PUT entries — safe to re-run
+```
+
+The FHIR-input side rides the same resources the filter chain understands: a
+provided `--fhir-patient` is embedded **verbatim** as the authoritative
+Patient (if it disagrees with the instance tags you get a warning — run
+`dcmjs filter --fhir-patient` first when the instances should match), and
+`--fhir-encounter` embeds an Encounter and references it from
+`ImagingStudy.encounter` (deliberately *not* mapped onto DICOM tags — that
+mapping is an open design question). Without `--fhir-patient`, the Patient
+is derived from the instance tags.
+
+Two knowingly-open questions, flagged for team discussion: the
+`Endpoint.address` default (`http://localhost:5000/dicomweb`, right only
+for a local static-wado-webserver — what's the rewrite-on-deploy story?),
+and the scope of Encounter→DICOM tag mapping. `dicomwebjs download` accepts
+the same flags, so a study pulled from a live server can emit its FHIR
+layer on the way down.
+
 ## `dcmjs anonymize` — strip PHI (current form)
 
 Today's anonymize applies the dcmjs anonymizer's default tag rules and writes
