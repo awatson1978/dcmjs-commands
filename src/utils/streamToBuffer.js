@@ -1,6 +1,9 @@
 import { multipartDecode } from "./message.js";
 import { once } from "node:events";
 import { Readable } from "node:stream";
+import { commandsLog } from "./logger.js";
+
+const log = commandsLog.getLogger("streamToBuffer");
 
 export async function frameToBuffer(readable) {
   if (readable.buffer) {
@@ -10,7 +13,7 @@ export async function frameToBuffer(readable) {
   const multipart = await streamToUint8Array(readable.stream);
   const decoded = multipartDecode(multipart);
   const [dataview] = decoded;
-  console.warn("Decoded", dataview.length, dataview.transferSyntaxUID);
+  log.debug("Decoded", dataview.length, dataview.transferSyntaxUID);
   return {
     buffer: dataview.buffer,
     transferSyntaxUID: dataview.transferSyntaxUID,
