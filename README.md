@@ -37,12 +37,14 @@ APIs, pipeable CLI, SMART-context inputs), see
 
 ## Install
 
-Requires Node >= 22.13. The two repositories are cloned side by side —
-the `dcmjs` dependency here points at the sibling checkout `file:../dcmjs`
-(the awatson1978 fork, `development` branch), which must be built first:
+Requires Node >= 22.13. Everything described in this README lives on the
+**`development` branch of both repositories** — clone with
+`-b development`, or check the branch out after cloning. The two
+repositories sit side by side: the `dcmjs` dependency here points at the
+sibling checkout `file:../dcmjs`, which must be built first:
 
 ```bash
-# this package and its sibling, side by side
+# this package and its sibling, side by side — note the branch
 git clone -b development https://github.com/awatson1978/dcmjs-commands.git
 git clone -b development https://github.com/awatson1978/dcmjs.git
 
