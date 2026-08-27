@@ -77,11 +77,16 @@ export async function runDicomweb({
       values.fhir || patientResource || encounterResource || values["wado-root"];
 
     let studyUIDs;
-    if (values.study) {
+    if (typeof source.scan === "function") {
+      const { groups, skipped } = await source.scan();
+      // A file the scan could not use is missing DATA, not a diagnostic —
+      // always on stderr, whatever the log level.
+      for (const skip of skipped) {
+        stderr(`dicomweb: warning: skipped ${skip.file} (${skip.error})`);
+      }
+      studyUIDs = values.study ? [values.study] : [...groups.keys()];
+    } else if (values.study) {
       studyUIDs = [values.study];
-    } else if (typeof source.scan === "function") {
-      const { groups } = await source.scan();
-      studyUIDs = [...groups.keys()];
     } else {
       throw new Error(
         `${sourceDir} is not a directory of Part 10 files — pass ` +
