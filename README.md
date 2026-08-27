@@ -23,10 +23,10 @@ For a worked tour of every command with runnable examples, see
 APIs, pipeable CLI, SMART-context inputs), see
 [architecture-design.md](architecture-design.md).
 
-> Status note: the 2026-08 feature arc (image convert, dicomdir, dicomweb
-> publishing, FHIR demographics, dicomweb+fhir, MCP server) lands via the
-> open PR stack #6–#11 here and #52–#54 in the dcmjs fork; this README
-> describes the line with that stack applied.
+> Reviewer note: the 2026-08 feature arc (image convert, dicomdir, dicomweb
+> publishing, FHIR demographics, dicomweb+fhir, MCP server) is merged on
+> this branch. The PR chain remains open for per-feature inspection —
+> #6–#11 here and #52–#55 in the dcmjs fork, each showing its own diff.
 
 ## Install
 
