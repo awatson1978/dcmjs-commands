@@ -19,7 +19,7 @@ dcmjs.log.setLevel("silent");
 
 const { DicomMessage, DicomMetaDictionary } = dcmjs.data;
 
-const SOURCE_SOP_INSTANCE_UID = "1.3.12.2.1107.5.2.32.35161.201107211449";
+const SOURCE_SOP_INSTANCE_UID = "2.25.111222333444";
 const MR_SOP_CLASS_UID = "1.2.840.10008.5.1.4.1.1.4";
 
 let dir;
@@ -44,8 +44,8 @@ function sidecar(extra = {}) {
     "00080060": { vr: "CS", Value: ["MR"] },
     "00080016": { vr: "UI", Value: [MR_SOP_CLASS_UID] },
     "00080018": { vr: "UI", Value: [SOURCE_SOP_INSTANCE_UID] },
-    "00100010": { vr: "PN", Value: [{ Alphabetic: "WATSON^ABIGAIL" }] },
-    "00100020": { vr: "LO", Value: ["316265"] },
+    "00100010": { vr: "PN", Value: [{ Alphabetic: "DOE^JANE" }] },
+    "00100020": { vr: "LO", Value: ["998877"] },
     "0020000D": { vr: "UI", Value: ["1.2.3.4"] },
     ...extra,
   };
@@ -112,7 +112,7 @@ test("png + auto-discovered sidecar → derived MR instance", async () => {
   expect(dataset.Columns).toBe(8);
   expect(dataset.SamplesPerPixel).toBe(1); // gray-in-RGB collapsed
   expect(dataset.PhotometricInterpretation).toBe("MONOCHROME2");
-  expect(String(dataset.PatientName)).toBe("WATSON^ABIGAIL");
+  expect(String(dataset.PatientName)).toBe("DOE^JANE");
   expect(dataset.StudyInstanceUID).toBe("1.2.3.4");
   expect(dataset.SOPClassUID).toBe(MR_SOP_CLASS_UID);
   // conformance: never the source UID, marked derived
@@ -248,5 +248,5 @@ test("png → dicomweb-json", async () => {
   expect(code).toBe(0);
   const json = JSON.parse(out.join(""));
   expect(Number(json["00280010"].Value[0])).toBe(8);
-  expect(json["00100020"].Value[0]).toBe("316265");
+  expect(json["00100020"].Value[0]).toBe("998877");
 });
