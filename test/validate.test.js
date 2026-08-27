@@ -95,3 +95,30 @@ test("validate errors when given no inputs", async () => {
   expect(code).toBe(1);
   expect(err.lines.join("\n")).toMatch(/no input/i);
 });
+
+test("validateFiles streams files above the threshold (streamed: true)", async () => {
+  const { validateFiles } = await import("../src/commands/validate.js");
+  // Tiny threshold forces the fixture through the streaming parser.
+  const { records, failures } = await validateFiles({
+    dcmjs,
+    targets: [FIXTURE],
+    streamThreshold: 1024,
+  });
+  expect(failures).toBe(0);
+  expect(records[0].status).toBe("ok");
+  expect(records[0].streamed).toBe(true);
+  expect(records[0].bytes).toBe(fs.statSync(FIXTURE).size);
+
+  // A non-DICOM file still fails through the streaming path. (Streamed
+  // validation is completeness-checked but shallower than the eager parse:
+  // EOF right after the meta group reads as an empty dataset.)
+  const junkPath = path.join(tmpDir, "junk-stream.dcm");
+  fs.writeFileSync(junkPath, Buffer.alloc(4096, 0x41));
+  const junk = await validateFiles({
+    dcmjs,
+    targets: [junkPath],
+    streamThreshold: 16,
+  });
+  expect(junk.failures).toBe(1);
+  expect(junk.records[0].status).toBe("fail");
+});
