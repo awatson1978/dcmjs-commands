@@ -10,7 +10,10 @@ What you can do with them:
 - **Inspect and check**: dump any file's contents, validate whole
   directory trees, emit standard DICOM JSON.
 - **Convert**: DICOM to and from JSON, FHIR, and PDF; rebuild real DICOM
-  instances from PNG/JPEG exports and their saved metadata.
+  instances from PNG/JPEG exports and their saved metadata; encapsulate
+  MP4 video verbatim as DICOM video instances and recover the
+  byte-identical stream back out — streamed, so a 20 GB recording
+  converts with the same command as a 20 MB clip.
 - **Rewrite safely**: change or remove tags in a streaming pass (any file
   size), apply FHIR Patient demographics, strip PHI with an auditable
   dry-run.
@@ -102,6 +105,16 @@ dcmjs convert report.pdf --to dcm -o report.dcm \
 
 # PDF out: extract the PDF from a PACS-sourced Encapsulated PDF instance
 dcmjs convert report.dcm --to pdf -o report.pdf
+
+# Video in: encapsulate an MP4's H.264 stream VERBATIM as a DICOM Video
+# Photographic Image instance (Supplement 225) — no transcoding, streamed
+# with bounded memory, so multi-GB recordings are fine. H.264
+# Baseline/Main/High up to Level 4.2; anything else fails with the exact
+# ffmpeg transcode command to run first.
+dcmjs convert visit.mp4 --to dcm -o visit.dcm --patient-name "Doe^Jane"
+
+# Video out: recover the byte-identical original MP4
+dcmjs convert visit.dcm --to mp4 -o visit.mp4
 
 # Any input kind: apply a FHIR Patient's demographics while converting
 dcmjs convert slice.png --to dcm -o rebuilt.dcm --fhir-patient patient.json

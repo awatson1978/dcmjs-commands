@@ -122,6 +122,143 @@ Gray-stored-as-RGB (the usual screenshot/export shape) collapses to
 MONOCHROME2 automatically; real color stays RGB. A bare image with no
 metadata becomes a plain Secondary Capture instance.
 
+## `dcmjs convert` — video in and out of DICOM
+
+DICOM can carry an H.264 video stream **verbatim**: the MP4's bytes become
+the pixel data of a Video Photographic Image instance, split into fragments
+that are just consecutive byte ranges of the one stream (DICOM Supplement
+225). Nothing is transcoded and no pixels are ever decoded — which means
+converting back out is concatenation, and the recovered file is
+byte-identical to the original.
+
+```bash
+# MP4 → DICOM. Geometry, frame count, and frame rate are read from the
+# MP4's own metadata; the H.264 profile/level picks the transfer syntax.
+dcmjs convert visit-recording.mp4 --to dcm -o visit-recording.dcm \
+    --patient-name "DOE^JANE" --patient-id 12345
+# convert: encapsulated 1,421,948,796 MP4 bytes as 6 fragments → visit-recording.dcm
+
+# DICOM → MP4: the byte-identical original stream back out
+dcmjs convert visit-recording.dcm --to mp4 -o recovered.mp4
+cmp recovered.mp4 visit-recording.mp4 && echo byte-identical
+```
+
+Both directions **stream**: the MP4 is read one fragment at a time (256 MiB
+each by default; `--fragment-bytes` changes it) and written incrementally,
+so peak memory is about one fragment no matter how large the file is. A
+21.8 GB recording converts with the same command as a 20 MB clip.
+
+Supported input codecs are what DICOM defines transfer syntaxes for:
+H.264 Baseline/Main/High up to Level 4.2 (1080p60). Anything else — HEVC,
+10-bit profiles, 4K levels — fails with the exact command to run first:
+
+```
+convert: unsupported video codec 'hev1' — DICOM video encapsulation
+supports H.264 Baseline/Main/High up to Level 4.2. Transcode first, e.g.:
+ffmpeg -i in.mp4 -c:v libx264 -profile:v high -level 4.2 -c:a copy out.mp4
+```
+
+Two details make the round trip exact. Fragment lengths must be even, so
+an odd-length stream gets one padding byte on its final fragment — and the
+instance also records the exact stream length in `(7FE0,0003)
+EncapsulatedPixelDataValueTotalLength` (a 64-bit value; this is what the
+`UV` value representation exists for), so extraction knows to drop that
+pad byte. Files from writers that omit the element still convert, with a
+warning that one trailing byte may survive.
+
+### Trust, but verify — at 21.8 GB
+
+The conversion was developed against a real stress fixture: a 21.8 GB
+1080p60 H.264 recording (208,948 frames), plus an *independently built*
+reference DICOM encapsulation of it — a ~150-line Python-stdlib script
+(`build_dicom_video.py`) that implements Supplement 225 straight from the
+spec, with a plain-Node verifier (`verify_dicom_video.mjs`, no dcmjs
+imports) that walks the written file and SHA-256-compares the
+reconstructed stream against the source MP4. Cross-implementation
+agreement, both ways: our encoder's output must satisfy their verifier,
+and their encoder's output must convert back through us byte-identically.
+
+```bash
+# our encoder, their verifier
+dcmjs convert video48-h264-50mbps.mp4 --to dcm -o ours.dcm
+node verify_dicom_video.mjs ours.dcm video48-h264-50mbps.mp4
+# MATCH — byte-identical round trip
+
+# their encoder, our decoder
+dcmjs convert video48-h264-50mbps.dcm --to mp4 -o back.mp4
+cmp back.mp4 video48-h264-50mbps.mp4 && echo byte-identical
+```
+
+To prove the memory stays bounded, measure the peak resident set — not the
+V8 heap. Node keeps binary data in Buffers *outside* the JavaScript heap,
+so `--max-old-space-size` would never notice a 20 GB buffering bug;
+`/usr/bin/time -l` (macOS; `-v` on Linux) catches it:
+
+```bash
+/usr/bin/time -l dcmjs convert video48-h264-50mbps.mp4 --to dcm -o ours.dcm
+#  ... maximum resident set size — stays near one fragment (~256 MiB),
+#      flat regardless of the 21.8 GB input
+```
+
+## Whole-slide imaging — pathology at scale
+
+The CMB-MML whole-slide microscopy study (one H&E slide, imaged as a
+pyramid of five DICOM SM instances from a 4.5 MB thumbnail to a 4.7 GB
+full-resolution level) exercises both ends of the toolkit: the big
+instances prove the streaming story on real data, and the tiles inside
+them are ordinary JPEGs the image-conversion path can round-trip.
+
+The big end first — the same commands from the earlier sections, unchanged
+on a 4.7 GB instance:
+
+```bash
+dcmjs dump full-resolution-level.dcm | head -40   # sub-second: the reader
+                                                  # stops before pixel data
+dcmjs validate ./cmb_mml/                         # sweeps the whole study
+dcmjs dicomweb ./cmb_mml/ -d ./slide-web         # Static-DICOMweb publish
+```
+
+The tiles: a whole-slide level with the JPEG transfer syntax stores one
+JPEG per frame, so a frame's bytes are a complete `.jpg` file. The library
+is right there, so extracting one is a dozen lines — save this as
+`extract-frame.mjs` in the dcmjs-commands checkout:
+
+```js
+// extract-frame.mjs — usage: node extract-frame.mjs in.dcm out.jpg [frame]
+import fs from "node:fs";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const dcmjs = require("dcmjs");
+
+const [, , input, output, frameArg] = process.argv;
+const frame = Number(frameArg ?? 1);
+const buffer = fs.readFileSync(input);
+const { dict } = await dcmjs.eventStream.DicomEventStream.fromPart10(
+  buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
+).toDataSet();
+const fragments = dict["7FE00010"]?.Value ?? [];
+if (!fragments.length) throw new Error("no encapsulated PixelData fragments");
+fs.writeFileSync(output, new Uint8Array(fragments[frame - 1]));
+console.log(`frame ${frame}/${fragments.length} → ${output}`);
+```
+
+```bash
+# a 240x240 H&E tile out of the pyramid's thumbnail level...
+node extract-frame.mjs thumbnail-level.dcm tile.jpg 56
+file tile.jpg
+# tile.jpg: JPEG image data, baseline, precision 8, 240x240, components 3
+
+# ...and back into DICOM as a derived Secondary Capture
+dcmjs convert tile.jpg --to dcm -o tile.dcm \
+    --patient-name "DOE^JANE" --patient-id 12345
+```
+
+That last command is the same forward-migration path as the PNG examples
+above: real pathology pixels, rebuilt into a conformant instance. Pair the
+extracted tile with a DICOM JSON sidecar naming the source instance and
+the rebuild gets the full derived-instance treatment (fresh
+SOPInstanceUID, `DERIVED\SECONDARY`, `SourceImageSequence`).
+
 ## `dcmjs validate` — sweep a corpus
 
 Parse everything under a directory and report what fails — useful before
