@@ -127,6 +127,52 @@ export function writeOutput({ output, data, stdout }) {
 }
 
 /**
+ * A Static-DICOMweb tree announces itself with a studies/ subdirectory.
+ */
+export function looksLikeStaticDicomWeb(dir) {
+  try {
+    return fs.statSync(path.join(dir, "studies")).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A Part 10 directory is any directory containing at least one file with
+ * the DICM magic (extensionless CD layouts included). The walk is bounded —
+ * this is a sniff, not an inventory.
+ */
+export function looksLikePart10Directory(dir, budget = { entries: 200 }) {
+  let stat;
+  try {
+    stat = fs.statSync(dir);
+  } catch {
+    return false;
+  }
+  if (!stat.isDirectory()) {
+    return false;
+  }
+  for (const entry of fs.readdirSync(dir).sort()) {
+    if (budget.entries-- <= 0) {
+      return false;
+    }
+    if (entry === "node_modules" || entry.startsWith(".")) {
+      continue;
+    }
+    const entryPath = path.join(dir, entry);
+    const entryStat = fs.statSync(entryPath);
+    if (entryStat.isDirectory()) {
+      if (looksLikePart10Directory(entryPath, budget)) {
+        return true;
+      }
+    } else if (entryStat.isFile() && sniffKind(entryPath) === "dicom") {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Recursively collect DICOM files from files/directories.
  * Slim sibling of the discovery in scripts/corpus-runner.mjs (kept
  * self-contained there on purpose — see its header).

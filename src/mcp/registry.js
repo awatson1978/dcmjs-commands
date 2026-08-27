@@ -22,6 +22,7 @@ import { runConvert } from "../commands/convert.js";
 import { runAnonymize } from "../commands/anonymize.js";
 import { runFilter } from "../commands/filter.js";
 import { runDicomdir } from "../commands/dicomdir.js";
+import { runDicomweb } from "../commands/dicomweb.js";
 import { runCaptured, commandError } from "./capture.js";
 
 const TAG = z
@@ -342,6 +343,43 @@ export const TOOLS = {
         args.output ??
         `${args.directory}/DICOMDIR`;
       return ok({ written, summary: summary.replace(/^dicomdir: /, "") }, result);
+    },
+  },
+
+  dicomweb_create: {
+    title: "Publish DICOM files as a Static-DICOMweb tree",
+    description:
+      "Build the Static-DICOMweb layout (studies/<uid>/series/... with " +
+      "gzipped metadata and frame files — what OHIF and other DICOMweb " +
+      "viewers read directly) from a directory of Part 10 DICOM files. " +
+      "The source directory is auto-detected; every study found is " +
+      "published unless study_instance_uid narrows it. A wrong UID is a " +
+      "corrective error listing the studies actually present. Sibling of " +
+      "dicomdir_create: same input, web layout instead of the CD one.",
+    inputSchema: {
+      directory: z.string().describe("directory of Part 10 DICOM files"),
+      destination: z
+        .string()
+        .optional()
+        .describe("output root (default ./dicomweb)"),
+      study_instance_uid: z.string().optional(),
+    },
+    async handler({ dcmjs, args }) {
+      const result = await runCaptured(runDicomweb, {
+        dcmjs,
+        positionals: [args.directory],
+        values: {
+          directory: args.destination,
+          study: args.study_instance_uid,
+        },
+      });
+      if (result.code !== 0) {
+        throw commandError("dicomweb_create", result);
+      }
+      const written = result.stdoutLines
+        .map((line) => line.match(/→ (.*)$/)?.[1])
+        .filter(Boolean);
+      return ok({ written }, result);
     },
   },
 };

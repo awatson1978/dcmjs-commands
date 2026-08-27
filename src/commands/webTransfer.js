@@ -56,6 +56,7 @@ export async function runTransfer({
     const destination = await createAccess(values.directory, {
       ...values,
       scheme: "file",
+      isDestination: true,
     });
     const access = await createAccess(url, values);
     const srcStudy = await access.queryStudy(studyUID);
