@@ -147,6 +147,36 @@ dcmjs dicomdir ./study --copy ./cd
 dcmjs dicomdir ./study --json | jq .summary   # dry run: records, warnings, skips
 ```
 
+## `dcmjs dicomweb` — publish a tree for web viewers
+
+The modern sibling of `dcmjs dicomdir`: same input (a folder of DICOM
+files), different index — the Static-DICOMweb layout (`studies/<uid>/...`
+with gzipped metadata and multipart frame files) that OHIF and other
+DICOMweb viewers read directly, no server required.
+
+```bash
+dcmjs dicomweb ./study -d ./web
+# dicomweb: study 1.3.12... → ./web/studies/1.3.12...
+# dicomweb: 1 study published to ./web
+
+dcmjs dicomweb ./mixed-folder -d ./web        # every study found is published
+dcmjs dicomweb ./study -d ./web -S 1.3.12...  # or just one
+```
+
+The same machinery makes `dicomwebjs download` accept a plain directory of
+Part 10 files as its source (auto-detected — a `studies/` subdirectory
+means Static-DICOMweb, DICM magic anywhere means Part 10):
+
+```bash
+dicomwebjs download ./study -S 1.3.12... -d ./web   # Part 10 dir in
+dicomwebjs part10 ./web -S 1.3.12... -d ./exported  # Part 10 back out
+```
+
+A wrong study UID answers with the studies actually found (patient, description,
+counts) instead of a stack trace. For heavyweight publishing (thumbnails,
+deduplicated metadata trees, a server), `@radicalimaging/static-wado-creator`'s
+`mkdicomweb` remains the production tool — this is the right-sized native path.
+
 ## `dcmjs anonymize` — strip PHI (current form)
 
 Today's anonymize applies the dcmjs anonymizer's default tag rules and writes

@@ -25,6 +25,7 @@ program
   .description("Dump a dicomweb query/metadata response")
   .argument("<dicomwebUrl>", "dicomweb URL or file location")
   .option("--debug", "debug logging")
+  .option("--verbose", "info-level logging")
   .option("--quiet", "errors only")
   .action(async (fileName, options) => {
     setOptions(options);
@@ -40,6 +41,7 @@ program
   .argument("<dicomwebUrl>", "dicomweb URL or file location")
   .option("-p, --pretty", "pretty print")
   .option("--debug", "debug logging")
+  .option("--verbose", "info-level logging")
   .option("--quiet", "errors only")
   .action(async (fileName, options) => {
     setOptions(options);

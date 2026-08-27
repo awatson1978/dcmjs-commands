@@ -68,6 +68,18 @@ export class DicomAccess {
       return new DicomWebAccess(url, options);
     }
     if (scheme.startsWith("file")) {
+      // Destinations are always the Static-DICOMweb layout — never sniff
+      // them (the default "." could contain stray .dcm files).
+      if (!options?.isDestination) {
+        const { looksLikeStaticDicomWeb, looksLikePart10Directory } =
+          await import("../io.js");
+        if (!looksLikeStaticDicomWeb(url) && looksLikePart10Directory(url)) {
+          // A plain directory of Part 10 files: serve it as a source.
+          const { Part10DirectoryAccess } =
+            await import("../part10/Part10DirectoryAccess.js");
+          return new Part10DirectoryAccess(url, options);
+        }
+      }
       const { StaticDicomWebAccess } =
         await import("../staticdicomweb/StaticDicomWebAccess.js");
       // Static dicomweb directory format, basically files in a structure

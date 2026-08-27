@@ -3,8 +3,10 @@ import path from "path";
 import zlib from "zlib";
 import { promisify } from "util";
 import { handleHomeRelative } from "./handleHomeRelative.js";
+import { commandsLog } from "./logger.js";
 
 const gunzip = promisify(zlib.gunzip);
+const log = commandsLog.getLogger("loadJson");
 
 export async function loadJson(dirSrc, name, defaultReturn) {
   let finalData;
@@ -17,8 +19,11 @@ export async function loadJson(dirSrc, name, defaultReturn) {
       finalData = rawdata;
     }
   } catch (err) {
+    // Callers that expect a possible miss pass a defaultReturn (null works);
+    // only an unexpected miss is worth a log line, and it goes through the
+    // logger, not raw console.
     if (defaultReturn === undefined) {
-      console.log("Couldn't read", dir, name, err);
+      log.warn("Couldn't read", path.join(dir, name), err.message);
     }
   }
   return (finalData && JSON.parse(finalData)) || defaultReturn;
