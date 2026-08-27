@@ -29,10 +29,11 @@ const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
 
 /**
  * Sniff what a file is: "dicom" (DICM magic at offset 128), "pdf"
- * (%PDF- at offset 0), "png", "jpeg", or "unknown". Extension is the
- * tiebreaker when the magic checks cannot be read (short files). DICM is
- * checked first — a Part 10 file can contain JPEG bytes in its fragments,
- * but never before the 132-byte preamble.
+ * (%PDF- at offset 0), "png", "jpeg", "mp4" (ftyp box at offset 4), or
+ * "unknown". Extension is the tiebreaker when the magic checks cannot be
+ * read (short files). DICM is checked first — a Part 10 file can contain
+ * JPEG or MP4 bytes in its fragments, but never before the 132-byte
+ * preamble.
  */
 export function sniffKind(filePath) {
   let fd;
@@ -56,6 +57,9 @@ export function sniffKind(filePath) {
     if (headBytes >= 3 && head.subarray(0, 3).equals(JPEG_MAGIC)) {
       return "jpeg";
     }
+    if (headBytes >= 8 && head.toString("ascii", 4, 8) === "ftyp") {
+      return "mp4";
+    }
   } catch {
     // fall through to extension check
   } finally {
@@ -75,6 +79,9 @@ export function sniffKind(filePath) {
   if (/\.(jpg|jpeg)$/i.test(filePath)) {
     return "jpeg";
   }
+  if (/\.(mp4|m4v)$/i.test(filePath)) {
+    return "mp4";
+  }
   return "unknown";
 }
 
@@ -86,6 +93,13 @@ export function sniffKind(filePath) {
  */
 export function binaryReplacer(mode) {
   return function (key, value) {
+    // (7FE0,0003) Encapsulated Pixel Data Value Total Length is a uint64 and
+    // naturalizes to a BigInt, which JSON.stringify rejects outright.
+    if (typeof value === "bigint") {
+      return value <= BigInt(Number.MAX_SAFE_INTEGER)
+        ? Number(value)
+        : value.toString();
+    }
     let bytes = null;
     if (value instanceof ArrayBuffer) {
       bytes = new Uint8Array(value);
