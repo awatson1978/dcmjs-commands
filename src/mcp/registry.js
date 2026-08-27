@@ -97,7 +97,7 @@ export const TOOLS = {
       path: z.string().describe("file or directory to validate"),
     },
     async handler({ dcmjs, args }) {
-      const { records, failures } = validateFiles({
+      const { records, failures } = await validateFiles({
         dcmjs,
         targets: [args.path],
       });

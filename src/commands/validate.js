@@ -17,17 +17,31 @@ Parse DICOM files and report failures.
     --json <file>    write the full report as JSON
 `;
 
+// Above this size the eager path cannot even read the file (Node's
+// readFileSync caps at 2 GiB), so validation switches to the streaming
+// parser — same conformance walk, bounded memory. Overridable for tests.
+const STREAM_THRESHOLD_BYTES = 2 ** 31;
+
 /**
  * The validation core, decoupled from output formatting: discover, parse,
  * record. Consumed by runValidate (line-oriented CLI output) and by the MCP
  * server (raw records as structured tool results).
  *
- * @param {{ dcmjs: Object, targets: string[] }} args
- * @returns {{ records: Array, failures: number }}
+ * Files at or above `streamThreshold` bytes are parsed with the streaming
+ * reader (an inert event-stream listener — success means the whole file
+ * walked cleanly); such records carry `streamed: true`.
+ *
+ * @param {{ dcmjs: Object, targets: string[], streamThreshold?: number }} args
+ * @returns {Promise<{ records: Array, failures: number }>}
  * @throws when a target cannot be walked or no DICOM files are found
  */
-export function validateFiles({ dcmjs, targets }) {
+export async function validateFiles({
+  dcmjs,
+  targets,
+  streamThreshold = STREAM_THRESHOLD_BYTES,
+}) {
   const { DicomMessage } = dcmjs.data;
+  const { fromPart10Stream, EventStreamListener } = dcmjs.eventStream;
   const files = [];
   for (const target of targets) {
     discoverDicomFiles(target, files);
@@ -36,20 +50,49 @@ export function validateFiles({ dcmjs, targets }) {
     throw new Error("no DICOM files found");
   }
 
+  // Chains bind in the constructor, so completeness tracking must be a
+  // subclass, not a post-construction override.
+  class CompletionListener extends EventStreamListener {
+    _baseEndDataSet() {
+      this.done = true;
+    }
+  }
+
   const records = [];
   let failures = 0;
   for (const file of files) {
     const relPath = path.relative(process.cwd(), file) || file;
     const startedAt = Date.now();
     try {
-      const arrayBuffer = readFileArrayBuffer(file);
-      DicomMessage.readFile(arrayBuffer);
-      records.push({
-        file: relPath,
-        status: "ok",
-        bytes: arrayBuffer.byteLength,
-        ms: Date.now() - startedAt,
-      });
+      const { size } = fs.statSync(file);
+      if (size >= streamThreshold) {
+        // The streaming reader resolves quietly on a truncated input, so
+        // completeness is the check: endDataSet must have fired.
+        const listener = new CompletionListener();
+        await fromPart10Stream(
+          fs.createReadStream(file, { highWaterMark: 8 * 1024 * 1024 }),
+          listener
+        );
+        if (!listener.done) {
+          throw new Error("input ended before the dataset completed");
+        }
+        records.push({
+          file: relPath,
+          status: "ok",
+          bytes: size,
+          streamed: true,
+          ms: Date.now() - startedAt,
+        });
+      } else {
+        const arrayBuffer = readFileArrayBuffer(file);
+        DicomMessage.readFile(arrayBuffer);
+        records.push({
+          file: relPath,
+          status: "ok",
+          bytes: arrayBuffer.byteLength,
+          ms: Date.now() - startedAt,
+        });
+      }
     } catch (err) {
       failures += 1;
       records.push({
@@ -78,7 +121,7 @@ export async function runValidate({
 
   let result;
   try {
-    result = validateFiles({ dcmjs, targets: positionals });
+    result = await validateFiles({ dcmjs, targets: positionals });
   } catch (err) {
     stderr(`validate: ${err.message}`);
     return 1;
