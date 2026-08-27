@@ -1,16 +1,19 @@
 # dcmjs-commands by example
 
-A worked tour of every command. The design goal throughout: work *streaming* —
-files pass through the tools piece by piece, so the same command that handles a
-500 KB CT slice handles a 21.8 GB surgical video without loading it into
-memory. Every example below was run against real files before being written
-down.
+A worked tour of every command. Two terms up front for readers arriving
+from outside DICOM: a *Part 10 file* is the standard on-disk DICOM file
+format (the `.dcm` files a scanner or PACS produces), and *DICOMweb* is
+the web API for the same data (JSON metadata, HTTP retrieval). The design
+goal throughout these tools: work *streaming* — files pass through piece
+by piece, so the same command that handles a 500 KB CT slice handles a
+21.8 GB surgical video without loading it into memory. Every example
+below was run against real files before being written down.
 
 Four binaries:
 
 | binary | purpose |
 |---|---|
-| `dcmjs` | local Part 10 files: inspect, convert, validate, anonymize, filter, dicomdir |
+| `dcmjs` | local Part 10 files: inspect, convert, validate, anonymize, filter, dicomdir, dicomweb |
 | `dcmjs-mcp` | the same verbs as MCP tools for LLM toolchains (stdio server) |
 | `dicomwebjs` | DICOMweb sources (http or Static-DICOMWeb file trees): dump, instance, study transfer |
 | `dimsejs` | DIMSE networking (stub — placeholder surface) |
@@ -25,9 +28,10 @@ silently sees the old version. Run the tests with `npm test` (it sets the
 
 ## `dcmjs dump` — look inside a file
 
-The quickest way to see what a DICOM file contains. Default output is one line
-per element; `--json` gives the naturalized dataset (human-friendly names,
-binary summarized).
+The quickest way to see what a DICOM file contains. Default output is one
+line per element; `--json` gives the *naturalized* form — dcmjs's readable
+representation, with keyword keys (`PatientName`) instead of numeric tags
+and binary values summarized rather than printed.
 
 ```bash
 dcmjs dump study/slice001.dcm
@@ -41,8 +45,10 @@ dcmjs dump study/slice001.dcm --json | jq .PatientName
 
 ## `dcmjs instance` — tag-keyed DICOM JSON
 
-The same file as standards-shaped DICOM JSON (tag keys, `vr`/`Value` entries) —
-the form DICOMweb metadata services speak.
+The same file as standard DICOM JSON (numeric tag keys, `vr`/`Value`
+entries) — the exact shape a DICOMweb `/metadata` endpoint returns, and
+the shape other tools here accept as metadata input. Use this when a
+machine is the consumer; use `dump --json` when a human is.
 
 ```bash
 dcmjs instance study/slice001.dcm --pretty
@@ -73,10 +79,12 @@ dcmjs convert consent.pdf --to dcm -o consent.dcm \
 
 ## `dcmjs convert` — images back into DICOM
 
-The forward-migration path: a PNG or JPEG exported from an old DICOM file,
-traveling with its metadata as DICOM JSON (any wrapper document works — the
-converter plucks tag-keyed `{vr, Value}` entries wherever they sit and tells
-you what it ignored).
+The scenario: years ago a DICOM study was exported as PNGs or JPEGs, with
+the DICOM metadata saved alongside as JSON, and now you want real DICOM
+files again. The converter accepts the image plus its metadata document —
+any wrapper format works, because it collects tag-keyed `{vr, Value}`
+entries wherever they sit in the JSON and tells you which keys it
+ignored.
 
 ```bash
 # 001.json next to 001.png is discovered automatically
@@ -88,15 +96,22 @@ dcmjs dump rebuilt/001.dcm | grep -E "0008,0008|0020,000D"
 # (0020,000D) UI StudyInstanceUID: 1.3.12...    ← original study preserved
 ```
 
-Conformance is enforced by the dcmjs library, not left to the caller: the
-actual image geometry always beats metadata claims (a wrong `Rows` is a hard
-error naming both numbers), and when the metadata identifies the original
-instance the rebuilt file gets a **fresh SOPInstanceUID**, a
-`SourceImageSequence` reference, and `LossyImageCompression 01` — original
-UIDs are never reused for rebuilt pixels.
+Two safety rules are built in rather than left to the caller. First,
+measurements taken from the actual image (rows, columns, bit depth)
+always override what the metadata claims — a wrong `Rows` is a hard error
+naming both numbers, because silently trusting either side would corrupt
+the output. Second, when the metadata identifies the original instance,
+the rebuilt file is marked as a *derived* copy: it gets a **fresh
+SOPInstanceUID**, a `SourceImageSequence` pointing back at the original,
+and `LossyImageCompression 01`. Reusing the original UID would assert
+that this file *is* the original — it is not; the pixels passed through a
+lossy export.
 
-An 8-bit export of a 16-bit original can approximately invert the window
-rendering when the metadata carries WindowCenter/WindowWidth:
+About that lossiness: the PNG export was typically made by applying the
+display window (a brightness/contrast mapping) to 16-bit data and saving
+8-bit results. When the metadata still carries the window parameters
+(WindowCenter/WindowWidth), the transform can be approximately inverted
+to recover 16-bit-range stored values:
 
 ```bash
 dcmjs convert 001.png --to dcm -o rebuilt/001.dcm --restore-values
@@ -122,11 +137,13 @@ dcmjs validate ./incoming --json report.json   # full machine-readable report
 
 ## `dcmjs dicomdir` — index a tree onto media
 
-Build a DICOMDIR — the Media Storage Directory a CD/DVD viewer reads — for
-every DICOM file under a directory. Record keys come from a partial parse
-that stops before PixelData, so large studies index in moments; the byte
-offsets inside the directory records are computed exactly (measure-then-
-write in dcmjs.media), not left as zeros.
+A DICOMDIR is the index file on DICOM interchange media (CDs, DVDs, USB
+filesets): one DICOM file whose patient/study/series/image records point
+at all the others by byte position. This command builds one for every
+DICOM file under a directory. Indexing is fast because each file is only
+parsed up to (not including) its pixel data, and the record offsets are
+computed exactly — the hard part of writing a DICOMDIR, and the reason
+many tools leave them as zeros and hope the reader doesn't check.
 
 ```bash
 dcmjs dicomdir ./study
@@ -135,10 +152,12 @@ dcmjs dicomdir ./study
 dcmjs dump ./study/DICOMDIR | head -6   # it's a DICOM file; dump reads it
 ```
 
-DICOMDIR referenced file names must be ISO 9660 level 1 (A–Z 0–9 _, max 8
-chars per component). Real trees rarely are — by default that's a warning,
-`--strict` makes it an error, and `--copy` sidesteps it by staging a
-conformant CD-style tree:
+One rule inherited from the CD era: the file names a DICOMDIR references
+must fit the old ISO 9660 disc filesystem — uppercase A–Z, digits,
+underscore, at most 8 characters per path component. Real directory trees
+rarely comply. By default that's a warning, `--strict` makes it an error,
+and `--copy` sidesteps the problem by staging a conformant CD-style tree
+with generated names:
 
 ```bash
 dcmjs dicomdir ./study --copy ./cd
@@ -150,9 +169,12 @@ dcmjs dicomdir ./study --json | jq .summary   # dry run: records, warnings, skip
 ## `dcmjs dicomweb` — publish a tree for web viewers
 
 The modern sibling of `dcmjs dicomdir`: same input (a folder of DICOM
-files), different index — the Static-DICOMweb layout (`studies/<uid>/...`
-with gzipped metadata and multipart frame files) that OHIF and other
-DICOMweb viewers read directly, no server required.
+files), different index. Instead of a CD-style DICOMDIR, this writes the
+*Static-DICOMweb* layout — the DICOMweb API's responses pre-computed as
+files on disk (`studies/<uid>/...` with gzipped JSON metadata and
+per-frame pixel files). OHIF and other DICOMweb viewers can read the
+result directly from any static file host; no server-side DICOM logic is
+required.
 
 ```bash
 dcmjs dicomweb ./study -d ./web
@@ -179,11 +201,13 @@ deduplicated metadata trees, a server), `@radicalimaging/static-wado-creator`'s
 
 ### dicomweb+fhir: `--fhir`
 
-The SMART-imaging pattern in one output: FHIR resources for discovery and
-identity, the DICOMweb tree for pixels. `--fhir` adds a `fhir/` layer —
-Patient, ImagingStudy (id = StudyInstanceUID, `subject` → the Patient,
-`endpoint` → a DICOM WADO-RS Endpoint), and a **transaction Bundle** any
-FHIR server loads in one request:
+FHIR is how the rest of healthcare IT exchanges data; DICOM is where the
+pixels live. The `--fhir` flag produces both halves of that partnership
+in one output: the DICOMweb tree carries the images, and a `fhir/` layer
+describes them to FHIR systems — a Patient, an ImagingStudy (id =
+StudyInstanceUID, `subject` → the Patient, `endpoint` → where the pixels
+are served), and a **transaction Bundle** that loads the whole set into
+any FHIR server with one request:
 
 ```bash
 dcmjs dicomweb ./study -d ./web --fhir \
@@ -195,26 +219,28 @@ curl -X POST https://fhir.example.org/ -H 'Content-Type: application/fhir+json' 
   -d @./web/fhir/Bundle.json    # idempotent PUT entries — safe to re-run
 ```
 
-The FHIR-input side rides the same resources the filter chain understands: a
-provided `--fhir-patient` is embedded **verbatim** as the authoritative
-Patient (if it disagrees with the instance tags you get a warning — run
-`dcmjs filter --fhir-patient` first when the instances should match), and
-`--fhir-encounter` embeds an Encounter and references it from
-`ImagingStudy.encounter` (deliberately *not* mapped onto DICOM tags — that
-mapping is an open design question). Without `--fhir-patient`, the Patient
-is derived from the instance tags.
+FHIR resources also work as *inputs*. A provided `--fhir-patient` is
+embedded verbatim as the authoritative Patient; if it disagrees with what
+the instance tags say, you get a warning rather than a silent resolution
+— run `dcmjs filter --fhir-patient` first when the instances themselves
+should be updated. `--fhir-encounter` embeds an Encounter and references
+it from `ImagingStudy.encounter` (it is deliberately *not* written into
+DICOM tags — see below). Without `--fhir-patient`, the Patient is derived
+from the instance tags.
 
-Two knowingly-open questions, flagged for team discussion: the
-`Endpoint.address` default (`http://localhost:5000/dicomweb`, right only
-for a local static-wado-webserver — what's the rewrite-on-deploy story?),
-and the scope of Encounter→DICOM tag mapping. `dicomwebjs download` accepts
-the same flags, so a study pulled from a live server can emit its FHIR
-layer on the way down.
+Two questions are knowingly open, flagged for team discussion in
+[architecture-design.md](architecture-design.md): what `Endpoint.address`
+should be for a static tree that cannot know its eventual serving URL
+(the default suits a local static-wado-webserver; set `--wado-root` for
+anything else), and how far Encounter/order context should map onto DICOM
+tags. `dicomwebjs download` accepts the same flags, so a study pulled
+from a live server can emit its FHIR layer on the way down.
 
 ## `dcmjs anonymize` — strip PHI (current form)
 
 Today's anonymize applies the dcmjs anonymizer's default tag rules and writes
-a scrubbed copy:
+a scrubbed copy (`--dry-run` prints the tag-level change list as JSON
+without writing anything):
 
 ```bash
 dcmjs anonymize slice001.dcm -o slice001-anon.dcm
@@ -222,24 +248,30 @@ dcmjs dump slice001-anon.dcm | grep 0010,0010
 # (0010,0010) PN PatientName: ANON^PATIENT
 ```
 
-A streaming rewrite is planned (salt-derived deterministic UIDs, consistent
-date offsets, name-list substitution) built on `filter`, below — this command
-stays as-is until the filter version reaches parity.
+Know the limits before relying on it: the default rules cover the
+*standard* PHI tags only. Vendor private tags and text burned into the
+pixels themselves are not touched — audit the output before releasing
+anything. A streaming rewrite is planned (salt-derived deterministic
+UIDs, consistent date offsets, name-list substitution) built on `filter`,
+below — this command stays as-is until the filter version reaches parity.
 
 ## `dcmjs filter` — the streaming workhorse
 
-`filter` streams a file through an event-stream filter chain into a new file.
-Nothing ever holds the whole dataset, so it works unchanged on inputs of any
+`filter` copies a file to a new file while a chain of filters watches (and
+optionally rewrites) every element as it streams past. Nothing ever holds
+the whole dataset in memory, so the same command works on inputs of any
 size — the pipeline underneath is the one verified on a 21.8 GB fragmented
-video instance (peak memory ≈ two fragments, output video bit-identical).
+video instance (peak memory about two pixel fragments, output video
+bit-identical to the source).
 
 ### Structural copy (no filters)
 
-Copies a file element-by-element through the full parse/serialize cycle. Not
-byte-identical by design (undefined-length sequences, recomputed group
-lengths), but semantically equal: tags, VRs, and binary payloads all survive
-re-parse exactly. A cheap way to normalize a file's encoding or prove a file
-survives the event-stream round trip:
+With no filters given, the copy still passes through the full
+parse-and-serialize cycle. The output is not byte-identical to the input
+— encoding details like sequence lengths are legitimately rewritten — but
+it is semantically equal: every tag, VR, and binary payload survives
+re-parse exactly. Useful for normalizing a file's encoding, or as a cheap
+proof that a file round-trips cleanly:
 
 ```bash
 dcmjs filter in.dcm -o copy.dcm
@@ -275,10 +307,13 @@ dcmjs filter in.dcm -o out.dcm \
 
 ### Custom filters: `--module file.mjs`
 
-The escape hatch that makes `filter` a framework. A module's default export is
-a filter object (or an array of them) speaking the event-stream vocabulary:
-each method has the shape `method(next, ...args)` and calls `next(...)` to
-pass the event along — or doesn't, to swallow it.
+The escape hatch that makes `filter` a framework. A module's default
+export is a filter object (or an array of them) whose methods are named
+after the streaming reader's events — `startElement`, `value`,
+`binaryFragment`, and so on. Each method has the shape
+`method(next, ...args)`: call `next(...)` to pass the event along, change
+the arguments to rewrite it, or return without calling `next` to swallow
+it entirely.
 
 A working example — fingerprint every binary element while copying, without
 buffering anything:
@@ -321,13 +356,15 @@ Two things worth knowing when writing modules:
 
 ### Demographics from FHIR: `--fhir-patient resource.json`
 
-The FHIR loop, closed: `convert --to fhir` maps DICOM → FHIR, and
-`--fhir-patient` maps a FHIR Patient back onto DICOM — no jq, no shell
-plumbing. The mapping (in `@dcmjs/fhir`, one audited place) picks the
-`official` name over `maiden`, the MR-typed identifier over others, and
-converts administrative gender narrowly (male→M, female→F, other and any
-unrecognized value→O, unknown/absent→empty — extensions are deliberately
-never consulted).
+The two standards meet here in both directions: `convert --to fhir` maps
+DICOM out to FHIR, and `--fhir-patient` maps a FHIR Patient resource back
+onto DICOM's patient tags — no hand-written field mapping required. The
+mapping decisions live in one audited place (`@dcmjs/fhir`): where a
+Patient carries several names, the `official` one wins over the `maiden`;
+among identifiers, one typed MR (medical record number) is preferred; and
+administrative gender converts narrowly (male→M, female→F, other or any
+unrecognized value→O, unknown or absent→empty — profile extensions are
+deliberately never consulted, because they carry different semantics).
 
 ```bash
 cat jane-fox.json
@@ -372,11 +409,12 @@ dcmjs filter in.dcm -o out.dcm \
 
 ## `dcmjs-mcp` — the toolbox for LLM toolchains
 
-The forward-migration problem in practice: decades of DICOM files, and the
-thing driving the migration is an LLM agent. `dcmjs-mcp` is a stdio MCP
-server that exposes every verb above as a tool an agent can call natively —
-`dicom_dump`, `dicom_instance`, `dicom_validate`, `dicom_convert`,
-`dicom_anonymize`, `dicom_filter`, `dicomdir_create`.
+Decades of legacy DICOM files exist, and increasingly the thing doing the
+migration work is an LLM agent. `dcmjs-mcp` is an MCP server — the
+standard protocol by which AI assistants call external tools — exposing
+every verb above as a typed tool: `dicom_dump`, `dicom_instance`,
+`dicom_validate`, `dicom_convert`, `dicom_anonymize`, `dicom_filter`,
+`dicomdir_create`, `dicomweb_create`.
 
 Register it (Claude Code shown; any MCP client works):
 
@@ -402,16 +440,21 @@ The design contract is "help the agent make the correct choice":
 - **Binary stays on disk** — tools return `{ written: path }`, never inline
   bytes.
 
-The handlers are the same DI'd command functions the CLI uses — one code
-path, two front ends. (After pulling this feature, re-run `npm link` here so
-the `dcmjs-mcp` symlink is created.)
+Under the hood the tool handlers are the very same command functions the
+CLI runs — one implementation, two front ends — so CLI behavior and agent
+behavior can never drift apart. (If `dcmjs-mcp` is missing from your PATH
+after updating, re-run `npm link` here — new binary names need
+relinking.)
 
 ---
 
 ## `dicomwebjs` — DICOMweb sources
 
-The same inspect verbs, pointed at DICOMweb — either an http server or a
-Static-DICOMWeb file tree on disk — plus study transfer in both directions.
+The same inspect verbs, pointed at DICOMweb sources — a live http server,
+a Static-DICOMweb file tree on disk, or (auto-detected) a plain directory
+of Part 10 files — plus study transfer in both directions. Transfers
+print one completion line by default; `--verbose` narrates per-instance
+progress.
 
 ```bash
 # Dump query/metadata responses
@@ -433,8 +476,9 @@ dicomwebjs part10 ./local-cache -S 1.2.840.113619.2.5.1762583153... -d ./exporte
 ## Measuring: the performance harness
 
 `bench/baseline.js` times the three things people actually do with a file —
-open it, read its metadata, save it back — through both the legacy parse path
-and the event-stream path, so improvements (and regressions) are provable:
+open it, read its metadata, save it back — through both the classic parse
+path and the event-stream path, so improvements (and regressions) are
+provable rather than anecdotal:
 
 ```bash
 node bench/baseline.js          # human table
@@ -442,13 +486,13 @@ node bench/baseline.js --json   # machine-readable
 ```
 
 Current recorded baseline: event-stream parse+naturalize is 1.4–1.8× slower
-than the legacy path (a constant ~0.2–0.3 ms per parse), write cost is
+than the classic path (a constant ~0.2–0.3 ms per parse), write cost is
 equivalent. Those numbers exist to be beaten; the trend line is the point.
 
 ## The streaming story in one table
 
-Numbers from the 21.8 GB Supplement 225 video instance (21 fragments of
-1 GiB), the fixture these tools are tested against:
+Numbers from a 21.8 GB DICOM surgical-video instance (21 pixel-data
+fragments of 1 GiB each), the fixture these tools are tested against:
 
 | operation | peak memory | integrity check |
 |---|---|---|
