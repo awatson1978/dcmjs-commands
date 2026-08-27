@@ -255,6 +255,45 @@ Two things worth knowing when writing modules:
 - **Order**: `--module` filters run before the built-in `--set`/`--drop`
   filters, and multiple modules run in the order given.
 
+### Demographics from FHIR: `--fhir-patient resource.json`
+
+The FHIR loop, closed: `convert --to fhir` maps DICOM → FHIR, and
+`--fhir-patient` maps a FHIR Patient back onto DICOM — no jq, no shell
+plumbing. The mapping (in `@dcmjs/fhir`, one audited place) picks the
+`official` name over `maiden`, the MR-typed identifier over others, and
+converts administrative gender narrowly (male→M, female→F, other and any
+unrecognized value→O, unknown/absent→empty — extensions are deliberately
+never consulted).
+
+```bash
+cat jane-fox.json
+# { "resourceType": "Patient",
+#   "name": [ { "use": "official", "family": "FOX", "given": ["JANE"] },
+#             { "use": "maiden",   "family": "DOE", "given": ["JANE"] } ],
+#   "identifier": [ { "type": { "coding": [{ "code": "MR" }] }, "value": "22446688" } ],
+#   "gender": "female", "birthDate": "1980-04-15" }
+
+dcmjs filter in.dcm -o out.dcm --fhir-patient jane-fox.json
+dcmjs dump out.dcm | grep "(0010"
+# (0010,0010) PN PatientName: FOX^JANE     ← official, not the maiden DOE
+# (0010,0020) LO PatientID: 22446688
+# (0010,0030) DA PatientBirthDate: 19800415
+# (0010,0040) CS PatientSex: F
+```
+
+Unlike `--set` (replace-only), this is **insert-or-replace**: a
+de-identified file whose patient tags were removed outright still receives
+the full module, emitted at the correct tag-ordered position. And it's a
+deterministic overwrite — fields the resource doesn't carry are written
+present-but-empty, so no trace of the previous identity survives.
+
+The same flag works on `convert` for any input kind:
+
+```bash
+dcmjs convert scan.png --to dcm -o out.dcm --fhir-patient jane-fox.json
+dcmjs convert report.pdf --to dcm -o out.dcm --fhir-patient jane-fox.json
+```
+
 ### Combine everything
 
 ```bash
