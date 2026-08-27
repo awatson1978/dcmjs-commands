@@ -6,11 +6,12 @@ files pass through the tools piece by piece, so the same command that handles a
 memory. Every example below was run against real files before being written
 down.
 
-Three binaries:
+Four binaries:
 
 | binary | purpose |
 |---|---|
-| `dcmjs` | local Part 10 files: inspect, convert, validate, anonymize, filter |
+| `dcmjs` | local Part 10 files: inspect, convert, validate, anonymize, filter, dicomdir |
+| `dcmjs-mcp` | the same verbs as MCP tools for LLM toolchains (stdio server) |
 | `dicomwebjs` | DICOMweb sources (http or Static-DICOMWeb file trees): dump, instance, study transfer |
 | `dimsejs` | DIMSE networking (stub — placeholder surface) |
 
@@ -263,6 +264,44 @@ dcmjs filter in.dcm -o out.dcm \
   --drop 00104000
 # wrote out.dcm (527,462 bytes, 3 filters)
 ```
+
+---
+
+## `dcmjs-mcp` — the toolbox for LLM toolchains
+
+The forward-migration problem in practice: decades of DICOM files, and the
+thing driving the migration is an LLM agent. `dcmjs-mcp` is a stdio MCP
+server that exposes every verb above as a tool an agent can call natively —
+`dicom_dump`, `dicom_instance`, `dicom_validate`, `dicom_convert`,
+`dicom_anonymize`, `dicom_filter`, `dicomdir_create`.
+
+Register it (Claude Code shown; any MCP client works):
+
+```bash
+claude mcp add dcmjs -- dcmjs-mcp
+```
+
+The design contract is "help the agent make the correct choice":
+
+- **Descriptions are guidance, not labels** — each tool states its defaults
+  and conformance behavior ("original UIDs are never reused for rebuilt
+  pixels", "validate the output and audit before release").
+- **Errors are corrective**: state → consequence → the parameter to change.
+  `"target \"dcm\" produces binary — pass output: <path> to receive
+  { written: path }"`; `"image is 8-bit but metadata claims BitsStored=12 —
+  pass restore_values true or accept 8-bit output"`.
+- **Warnings ride along**: every result is `{ ok, warnings, ... }`, so a
+  partial success (ignored sidecar keys, non-conformant file names, skipped
+  files) is visible in the payload the agent reasons over.
+- **Dry runs before destruction**: `dicom_anonymize` returns its tag-level
+  change list and `dicomdir_create` its full record tree without writing
+  anything when `dry_run` is set.
+- **Binary stays on disk** — tools return `{ written: path }`, never inline
+  bytes.
+
+The handlers are the same DI'd command functions the CLI uses — one code
+path, two front ends. (After pulling this feature, re-run `npm link` here so
+the `dcmjs-mcp` symlink is created.)
 
 ---
 
