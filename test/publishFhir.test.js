@@ -74,8 +74,8 @@ describe("buildFhirLayer", () => {
     const layer = buildFhirLayer({
       naturals: [
         natural({
-          PatientID: "316265",
-          PatientName: [{ Alphabetic: "WATSON^ABIGAIL" }],
+          PatientID: "998877",
+          PatientName: [{ Alphabetic: "DOE^JANE" }],
         }),
       ],
       patientResource: JANE_FOX,
