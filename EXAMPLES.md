@@ -422,6 +422,19 @@ Register it (Claude Code shown; any MCP client works):
 claude mcp add dcmjs -- dcmjs-mcp
 ```
 
+Then ask for what you actually want, in plain language:
+
+> Claude, I have a CD with some XR and MRI images from 10 years ago that I
+> would like to scan and convert into modern medical imaging formats.
+> Please check the attached drives, and copy the data into my home
+> directory.
+
+> Claude, please make an anonymized copy of my MRI images from 2006.
+
+> Claude, I got married, and changed my last name. Could you go through
+> the images in my personal health records folder, and update the names
+> from JANE DOE to JANE FOX in them.
+
 The design contract is "help the agent make the correct choice":
 
 - **Descriptions are guidance, not labels** — each tool states its defaults
