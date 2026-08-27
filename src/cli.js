@@ -17,7 +17,7 @@ import { runFilter, filterUsage } from "./commands/filter.js";
 export const usage = `usage: dcmjs <command> [options]
 
 Commands:
-    convert     convert between DICOM, PDF, FHIR, and JSON representations
+    convert     convert between DICOM, PDF, PNG/JPEG, FHIR, and JSON representations
     dump        print a DICOM file's dataset (tag lines; --json for JSON)
     instance    print a DICOM file's dict as tag-keyed DICOM JSON
     anonymize   strip PHI tags and write a scrubbed copy
@@ -42,6 +42,8 @@ const COMMANDS = {
       title: { type: "string" },
       "study-uid": { type: "string" },
       "series-uid": { type: "string" },
+      metadata: { type: "string", short: "m" },
+      "restore-values": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   },
