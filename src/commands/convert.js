@@ -20,6 +20,7 @@ import {
 } from "../io.js";
 import { decodeImage } from "../imaging/decodeImage.js";
 import { extractTagKeyedJson } from "../utils/extractTagKeyedJson.js";
+import { loadFhirPatientAttrs } from "./filter.js";
 
 export const convertUsage = `usage: dcmjs convert <input> --to <format> [options]
 
@@ -39,6 +40,9 @@ Options:
     --title <title>          pdf input: DocumentTitle
     --study-uid <uid>        pdf/image input: attach to an existing StudyInstanceUID
     --series-uid <uid>       pdf/image input: SeriesInstanceUID
+    --fhir-patient <file>    apply a FHIR Patient resource's demographics
+                             (any input kind; overrides metadata and
+                             --patient-name/--patient-id)
     -m, --metadata <file>    image input: DICOM JSON metadata document
                              (default: same-basename .json next to the image)
     --restore-values         image input: rebuild approximate stored values by
@@ -70,9 +74,31 @@ function pdfOptionsFromValues(values) {
   return options;
 }
 
-async function convertDicom({ dcmjs, arrayBuffer, to, values }) {
+const PATIENT_MODULE_TAGS = [
+  { tag: "00100010", vr: "PN", keyword: "PatientName" },
+  { tag: "00100020", vr: "LO", keyword: "PatientID" },
+  { tag: "00100030", vr: "DA", keyword: "PatientBirthDate" },
+  { tag: "00100040", vr: "CS", keyword: "PatientSex" },
+];
+
+/** Insert-or-replace the patient module on a parsed DicomDict. */
+function applyFhirAttrsToDict(dicomDict, fhirAttrs) {
+  for (const { tag, vr, keyword } of PATIENT_MODULE_TAGS) {
+    const value = fhirAttrs[keyword];
+    dicomDict.upsertTag(tag, vr, value ? [value] : []);
+  }
+}
+
+async function convertDicom({ dcmjs, arrayBuffer, to, values, fhirAttrs }) {
   const { DicomMessage, DicomMetaDictionary } = dcmjs.data;
   const fhirVersion = values["fhir-version"] || "R4B";
+
+  if (fhirAttrs) {
+    // Rewrite once up front so every target sees the applied demographics.
+    const dicomDict = DicomMessage.readFile(arrayBuffer);
+    applyFhirAttrsToDict(dicomDict, fhirAttrs);
+    arrayBuffer = dicomDict.write();
+  }
 
   if (to === "json") {
     const dataset = DicomMetaDictionary.naturalizeDataset(
@@ -217,7 +243,7 @@ function restoreStoredValues(decoded, tags, stderr) {
   };
 }
 
-async function convertImage({ dcmjs, arrayBuffer, kind, to, values, input, stderr }) {
+async function convertImage({ dcmjs, arrayBuffer, kind, to, values, input, stderr, fhirAttrs }) {
   const metadata = resolveImageMetadata(input, values, stderr);
   let decoded = decodeImage(kind, arrayBuffer);
 
@@ -260,6 +286,9 @@ async function convertImage({ dcmjs, arrayBuffer, kind, to, values, input, stder
   const events = dcmjs.eventStream.DicomEventStream.fromImage(decoded, {
     metadata: Object.keys(metadata.tags).length ? metadata.tags : undefined,
     ...pdfOptionsFromValues(values),
+    // FHIR Patient wins over metadata and the individual patient flags;
+    // its empties are deliberate (deterministic overwrite of the module)
+    ...(fhirAttrs || {}),
     ...(values["restore-values"]
       ? { lossy: { method: "ISO_10918_1" } }
       : {}),
@@ -278,12 +307,12 @@ async function convertImage({ dcmjs, arrayBuffer, kind, to, values, input, stder
   throw new Error(`unsupported conversion: ${kind} → ${to}`);
 }
 
-async function convertPdf({ dcmjs, arrayBuffer, to, values }) {
+async function convertPdf({ dcmjs, arrayBuffer, to, values, fhirAttrs }) {
   const fhirVersion = values["fhir-version"] || "R4B";
-  const dataset = dcmjs.encapsulated.encapsulatePdf(
-    arrayBuffer,
-    pdfOptionsFromValues(values)
-  );
+  const dataset = dcmjs.encapsulated.encapsulatePdf(arrayBuffer, {
+    ...pdfOptionsFromValues(values),
+    ...(fhirAttrs || {}),
+  });
 
   if (to === "dcm") {
     return { binary: dcmjs.data.datasetToBuffer(dataset) };
@@ -328,11 +357,14 @@ export async function runConvert({
     }
 
     const arrayBuffer = readFileArrayBuffer(input);
+    const fhirAttrs = values["fhir-patient"]
+      ? loadFhirPatientAttrs(dcmjs, values["fhir-patient"])
+      : null;
     const result =
       kind === "dicom"
-        ? await convertDicom({ dcmjs, arrayBuffer, to, values })
+        ? await convertDicom({ dcmjs, arrayBuffer, to, values, fhirAttrs })
         : kind === "pdf"
-          ? await convertPdf({ dcmjs, arrayBuffer, to, values })
+          ? await convertPdf({ dcmjs, arrayBuffer, to, values, fhirAttrs })
           : await convertImage({
               dcmjs,
               arrayBuffer,
@@ -341,6 +373,7 @@ export async function runConvert({
               values,
               input,
               stderr,
+              fhirAttrs,
             });
 
     const written = writeOutput({
