@@ -106,12 +106,41 @@ smart-context-fetch | dcmjs filter in.dcm -o out.dcm --fhir-context -
 
 The existing per-resource flags stay as sugar over the context document.
 
+## Direction 3 — documents both ways (the "FHIR inbox as a DICOM CD" pair)
+
+Two small follow-ups that make document-class content round-trip between
+the standards as *filesets*, not just single instances. Both are
+standards-blessed; the design position that keeps them respectable is
+**dosage**: reference-don't-embed for pixel studies (that is what the
+dicomweb+fhir Endpoint is for), embedding tolerated for document-class
+payloads — SR, KOS manifests, Encapsulated PDFs, single key images. IHE
+already ships the precedent (XDS-I / MHD-I move DICOM manifests as
+documents).
+
+1. **`ENCAP DOC` record-type inference in `dcmjs dicomdir`.** PS3.3
+   defines the `ENCAP DOC` DirectoryRecordType precisely for Encapsulated
+   Document instances; our builder accepts a recordType but the command
+   defaults every leaf to `IMAGE`. Infer from SOPClassUID
+   (Encapsulated PDF/CDA/STL → `ENCAP DOC`, SR classes → `SR DOCUMENT`).
+   ~10 lines. Result: `fromFhir(documentReference)` instances +
+   `dcmjs dicomdir` = a fully conformant DICOM fileset of documents.
+2. **`application/dicom` attachment passthrough in `fromFhir`.** An
+   attachment whose contentType is `application/dicom` needs no mapping —
+   the bytes ARE the instance: base64 → `fromPart10`. Makes a Bundle of
+   DocumentReferences with embedded DICOM (SRs, KOS, encapsulated docs)
+   directly ingestible.
+
+Together these close a loop with demo value for the WG-20-adjacent crowd:
+a FHIR Bundle of documents → a valid DICOM CD with a proper DICOMDIR, and
+the CD back as one POST-able Bundle.
+
 ## Sequencing
 
 1. Library promotion (enabler; de-risks the server conversation).
 2. `exports` map + programmatic API docs for dcmjs-commands.
 3. Pipeable surface: `-` streams, `--fhir-context`.
-4. Server-side story (live Endpoint/accession) — after team discussion.
+4. Documents both ways (Direction 3 — small, can ride any of the above).
+5. Server-side story (live Endpoint/accession) — after team discussion.
 
 ## Open questions (need team input)
 
@@ -131,6 +160,13 @@ The existing per-resource flags stay as sugar over the context document.
    `genderToSex` table is deliberately narrow — `Patient.gender` only,
    never profile extensions; male→M, female→F, other/unrecognized→O,
    unknown/absent→empty. Documented as quicksand at the implementation.
+4. **Where is the embed/reference line for DICOM-in-FHIR?** Direction 3
+   proposes accepting `application/dicom` attachments. Which SOP classes
+   belong inline in a Bundle (SR, KOS, Encapsulated PDF, key images?) and
+   at what size does an attachment become an anti-pattern that should have
+   been an Endpoint reference? This one is worth raising beyond the team —
+   it is exactly the kind of question the dcmjs-org / OHIF / WG-20
+   community should own.
 
 ## Provenance
 
