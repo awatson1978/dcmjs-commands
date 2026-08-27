@@ -255,6 +255,32 @@ anything. A streaming rewrite is planned (salt-derived deterministic
 UIDs, consistent date offsets, name-list substitution) built on `filter`,
 below — this command stays as-is until the filter version reaches parity.
 
+### Anonymizing a whole DICOMDIR fileset
+
+The trap this example exists to teach: the DICOMDIR itself carries the
+patient name in its directory records, so anonymizing the instances while
+keeping the old index would leak the identity anyway. Scrub the files,
+then **rebuild** the index over the scrubbed copies:
+
+```bash
+mkdir -p ./anon-files
+for f in ./cd/DICOM/*; do
+  dcmjs anonymize "$f" -o "./anon-files/$(basename "$f")" > /dev/null
+done
+
+dcmjs dicomdir ./anon-files --copy ./anon-cd --fileset-id ANON_CD
+# dicomdir: 481 instances, 13 series, 1 study, 1 patient → ./anon-cd/DICOMDIR
+
+dcmjs validate ./anon-cd --quiet                    # 482/482 clean (files + new DICOMDIR)
+dcmjs dump ./anon-cd/DICOM/IM000001 | grep "(0010,0010)"
+# (0010,0010) PN PatientName: ANON^PATIENT
+dcmjs dump ./anon-cd/DICOMDIR | grep -c "FOX"       # 0 — the index was rebuilt clean
+```
+
+(Run against a 481-instance test fileset carrying the JANE FOX test
+identity; the old DICOMDIR's patient record read `FOX^JANE`, the rebuilt
+one reads `ANON^PATIENT`.)
+
 ## `dcmjs filter` — the streaming workhorse
 
 `filter` copies a file to a new file while a chain of filters watches (and
