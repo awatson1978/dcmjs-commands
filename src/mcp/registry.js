@@ -347,15 +347,24 @@ export const TOOLS = {
   },
 
   dicomweb_create: {
-    title: "Publish DICOM files as a Static-DICOMweb tree",
+    title: "Publish DICOM files as a Static-DICOMweb tree (optionally +FHIR)",
     description:
       "Build the Static-DICOMweb layout (studies/<uid>/series/... with " +
       "gzipped metadata and frame files — what OHIF and other DICOMweb " +
       "viewers read directly) from a directory of Part 10 DICOM files. " +
       "The source directory is auto-detected; every study found is " +
       "published unless study_instance_uid narrows it. A wrong UID is a " +
-      "corrective error listing the studies actually present. Sibling of " +
-      "dicomdir_create: same input, web layout instead of the CD one.",
+      "corrective error listing the studies actually present. With " +
+      "fhir true, also writes <dest>/fhir: Patient + ImagingStudy + a " +
+      "DICOMweb Endpoint resource, and a transaction Bundle.json a FHIR " +
+      "server (HAPI, Medplum, ...) loads in one POST — the SMART-imaging " +
+      "pattern (FHIR for discovery, DICOMweb for pixels). A provided " +
+      "fhir_patient is embedded verbatim as the authoritative Patient; if " +
+      "it disagrees with the instance tags a warning is returned (use " +
+      "dicom_filter with fhir_patient first to align the instances). Set " +
+      "wado_root to the URL the tree will be served from — the default " +
+      "(http://localhost:5000/dicomweb) is only right for a local " +
+      "static-wado-webserver.",
     inputSchema: {
       directory: z.string().describe("directory of Part 10 DICOM files"),
       destination: z
@@ -363,6 +372,25 @@ export const TOOLS = {
         .optional()
         .describe("output root (default ./dicomweb)"),
       study_instance_uid: z.string().optional(),
+      fhir: z
+        .boolean()
+        .optional()
+        .describe("also write the FHIR layer (dicomweb+fhir format)"),
+      fhir_patient: z
+        .string()
+        .optional()
+        .describe("path to a FHIR Patient to embed verbatim"),
+      fhir_encounter: z
+        .string()
+        .optional()
+        .describe(
+          "path to a FHIR Encounter to embed and reference from " +
+            "ImagingStudy.encounter (not mapped onto DICOM tags)"
+        ),
+      wado_root: z
+        .string()
+        .optional()
+        .describe("Endpoint.address — where the tree will be served"),
     },
     async handler({ dcmjs, args }) {
       const result = await runCaptured(runDicomweb, {
@@ -371,13 +399,17 @@ export const TOOLS = {
         values: {
           directory: args.destination,
           study: args.study_instance_uid,
+          fhir: !!args.fhir,
+          "fhir-patient": args.fhir_patient,
+          "fhir-encounter": args.fhir_encounter,
+          "wado-root": args.wado_root,
         },
       });
       if (result.code !== 0) {
         throw commandError("dicomweb_create", result);
       }
       const written = result.stdoutLines
-        .map((line) => line.match(/→ (.*)$/)?.[1])
+        .map((line) => line.match(/→ (.*?)( \(|$)/)?.[1])
         .filter(Boolean);
       return ok({ written }, result);
     },
