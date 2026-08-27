@@ -167,3 +167,37 @@ test("underlying command errors surface with their corrective text", async () =>
     call("dicom_dump", { file: path.join(dir, "nope.dcm") })
   ).rejects.toThrow(/nope\.dcm/);
 });
+
+test("dicom_convert accepts the mp4 target and forwards fragment_bytes", async () => {
+  const { makeTinyMp4 } = await import("../utils/makeTinyMp4.js");
+  const mp4Path = path.join(dir, "movie.mp4");
+  fs.writeFileSync(mp4Path, makeTinyMp4());
+
+  // binary guard covers mp4
+  await expect(
+    call("dicom_convert", { input: mp4Path, to: "dcm" })
+  ).rejects.toThrow(/pass output: <path>/);
+
+  const dcmPath = path.join(dir, "movie.dcm");
+  const result = await call("dicom_convert", {
+    input: mp4Path,
+    to: "dcm",
+    output: dcmPath,
+    fragment_bytes: 512,
+    patient_name: "DOE^JANE",
+  });
+  expect(result.written).toBe(dcmPath);
+  const expected = Math.ceil(fs.statSync(mp4Path).size / 512);
+  expect(result.warnings.join("\n")).toContain(`${expected} fragments`);
+
+  const recovered = path.join(dir, "recovered.mp4");
+  const back = await call("dicom_convert", {
+    input: dcmPath,
+    to: "mp4",
+    output: recovered,
+  });
+  expect(back.written).toBe(recovered);
+  expect(
+    Buffer.compare(fs.readFileSync(recovered), fs.readFileSync(mp4Path))
+  ).toBe(0);
+});

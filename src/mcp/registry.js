@@ -115,8 +115,15 @@ export const TOOLS = {
     title: "Convert to/from DICOM",
     description:
       "Convert between representations. Input kind is auto-detected: DICOM " +
-      "(→ json | dicomweb-json | fhir | dcm | pdf), PDF (→ dcm | fhir), " +
-      "PNG/JPEG (→ dcm | dicomweb-json | json). For image input, metadata " +
+      "(→ json | dicomweb-json | fhir | dcm | pdf | mp4), PDF (→ dcm | " +
+      "fhir), PNG/JPEG (→ dcm | dicomweb-json | json), MP4 (→ dcm). MP4 → " +
+      "dcm encapsulates the H.264 stream VERBATIM as a Video Photographic " +
+      "Image instance (Supplement 225 fragmented pixel data) — no " +
+      "transcoding, streamed with bounded memory, so multi-GB files are " +
+      "safe. Supported codecs: H.264 Baseline/Main/High up to Level 4.2; " +
+      "anything else fails with the exact ffmpeg transcode command to run " +
+      "first. DICOM video instance → mp4 recovers the byte-identical " +
+      "original stream. For image input, metadata " +
       "is a DICOM JSON document — pass metadata explicitly or a " +
       "same-basename .json next to the image is discovered; any wrapper " +
       "document works (tag-keyed vr/Value entries are collected wherever " +
@@ -128,15 +135,15 @@ export const TOOLS = {
       "rebuilt pixels. If the metadata claims BitsStored>8 on an 8-bit " +
       "image, the tool proceeds at 8 bits and says so in warnings — pass " +
       "restore_values true to invert WindowCenter/WindowWidth instead " +
-      "(output marked lossy). Binary targets (dcm, pdf) require `output` " +
-      "and return { written }; JSON targets return { result }.",
+      "(output marked lossy). Binary targets (dcm, pdf, mp4) require " +
+      "`output` and return { written }; JSON targets return { result }.",
     inputSchema: {
       input: z.string().describe("path to the input file"),
-      to: z.enum(["dcm", "json", "dicomweb-json", "fhir", "pdf"]),
+      to: z.enum(["dcm", "json", "dicomweb-json", "fhir", "pdf", "mp4"]),
       output: z
         .string()
         .optional()
-        .describe("output path — required for dcm/pdf targets"),
+        .describe("output path — required for dcm/pdf/mp4 targets"),
       metadata: z
         .string()
         .optional()
@@ -158,9 +165,19 @@ export const TOOLS = {
       title: z.string().optional(),
       study_uid: z.string().optional(),
       series_uid: z.string().optional(),
+      fragment_bytes: z
+        .number()
+        .int()
+        .optional()
+        .describe(
+          "mp4 → dcm: encapsulated fragment size in bytes (even, < 2^32; " +
+            "default 268435456 = 256 MiB — output is streamed, so the " +
+            "default is safe for multi-GB files)"
+        ),
     },
     async handler({ dcmjs, args }) {
-      const binaryTarget = args.to === "dcm" || args.to === "pdf";
+      const binaryTarget =
+        args.to === "dcm" || args.to === "pdf" || args.to === "mp4";
       if (binaryTarget && !args.output) {
         throw new Error(
           `target "${args.to}" produces binary — pass output: <path> to ` +
@@ -181,6 +198,10 @@ export const TOOLS = {
           title: args.title,
           "study-uid": args.study_uid,
           "series-uid": args.series_uid,
+          "fragment-bytes":
+            args.fragment_bytes !== undefined
+              ? String(args.fragment_bytes)
+              : undefined,
           pretty: false,
         },
       });
