@@ -1,13 +1,25 @@
 # dcmjs-commands
 
-Command line tools for [dcmjs](https://github.com/awatson1978/dcmjs) and
-DICOMweb: parse, dump, convert, anonymize, validate, and filter DICOM
-Part 10 files; rebuild DICOM from PNG/JPEG exports with DICOM JSON
-metadata; wrap and extract PDFs (the PACS "PDF in / PDF out" workflow);
-apply FHIR Patient demographics to DICOM streams; build DICOMDIR filesets
-and Static-DICOMweb trees (optionally with a FHIR layer — the
-dicomweb+fhir format); and expose all of it to LLM toolchains as an MCP
-server.
+Command-line tools, built on [dcmjs](https://github.com/awatson1978/dcmjs),
+for working with medical imaging files — DICOM on disk (*Part 10* files,
+the `.dcm` format scanners and PACS systems produce) and DICOM on the web
+(*DICOMweb*, the JSON-and-HTTP API for the same data).
+
+What you can do with them:
+
+- **Inspect and check**: dump any file's contents, validate whole
+  directory trees, emit standard DICOM JSON.
+- **Convert**: DICOM to and from JSON, FHIR, and PDF; rebuild real DICOM
+  instances from PNG/JPEG exports and their saved metadata.
+- **Rewrite safely**: change or remove tags in a streaming pass (any file
+  size), apply FHIR Patient demographics, strip PHI with an auditable
+  dry-run.
+- **Package and publish**: build DICOMDIR filesets for interchange media,
+  or Static-DICOMweb trees that web viewers like OHIF read directly —
+  optionally with a FHIR layer (the *dicomweb+fhir* format) so FHIR
+  systems can discover the study too.
+- **Hand it to an AI agent**: every verb is also available as a typed MCP
+  tool, with guardrails designed for machine callers.
 
 Four bins ship with the package:
 
@@ -56,13 +68,14 @@ invocations, not every flag.
 
 ```bash
 dcmjs dump scan.dcm            # tag lines: (GGGG,EEEE) VR Keyword: value
-dcmjs dump scan.dcm --json     # naturalized dataset as pretty JSON
+dcmjs dump scan.dcm --json     # readable JSON: keyword keys, binary summarized
 ```
 
 ### instance
 
 ```bash
-dcmjs instance scan.dcm --pretty   # tag-keyed DICOM JSON of the dict
+dcmjs instance scan.dcm --pretty   # standard DICOM JSON — what a DICOMweb
+                                   # /metadata endpoint returns
 ```
 
 ### convert
@@ -95,18 +108,21 @@ dcmjs convert slice.png --to dcm -o rebuilt.dcm --fhir-patient patient.json
 
 ### filter
 
-Streaming tag surgery — memory bounded by the largest fragment, so it works
-unchanged on multi-GB inputs:
+Copy a file while rewriting or removing tags in a streaming pass. Memory
+stays bounded by the largest piece of pixel data rather than the file, so
+the same command works unchanged on multi-gigabyte inputs:
 
 ```bash
 dcmjs filter in.dcm -o out.dcm --set 00100010=DOE^JANE --drop 00104000
 
-# Apply a FHIR Patient resource to the patient module. Insert-or-replace:
-# de-identified files whose patient tags were removed still receive the
-# full module; fields absent from the resource are written empty.
+# Apply a FHIR Patient resource to the patient identity tags.
+# Insert-or-replace: de-identified files whose patient tags were removed
+# still receive the full set; fields absent from the resource are written
+# empty, so nothing of the previous identity survives.
 dcmjs filter in.dcm -o out.dcm --fhir-patient patient.json
 
-# Custom filters: a JS module speaking the event-stream vocabulary
+# Custom filters: a JS module whose methods intercept the streaming
+# reader's events (startElement, value, binaryFragment, ...)
 dcmjs filter in.dcm -o out.dcm --module ./my-filter.mjs
 ```
 
@@ -129,8 +145,9 @@ dcmjs validate scan.dcm --json report.json --quiet
 
 ### dicomdir
 
-Build a DICOMDIR (Media Storage Directory) with exact byte offsets for a
-directory of DICOM files:
+Build a DICOMDIR — the index file on DICOM interchange media (CDs, DVDs,
+USB filesets), whose records point at every file by byte position — for a
+directory of DICOM files, with the offsets computed exactly:
 
 ```bash
 dcmjs dicomdir ./study                  # writes ./study/DICOMDIR
@@ -140,11 +157,13 @@ dcmjs dicomdir ./study --json           # dry run: record tree as JSON
 
 ### dicomweb
 
-Publish a directory of DICOM files as a Static-DICOMweb tree — the layout
-OHIF and other DICOMweb viewers read directly. With `--fhir`, also write a
-FHIR layer (the **dicomweb+fhir** format): Patient, ImagingStudy, a DICOM
-WADO-RS Endpoint, and a transaction `Bundle.json` any FHIR server loads in
-one POST.
+Publish a directory of DICOM files as a Static-DICOMweb tree — the
+DICOMweb API's responses pre-computed as files on disk, which OHIF and
+other web viewers read directly from any static file host. With `--fhir`,
+also write a FHIR layer (the **dicomweb+fhir** format): a Patient, an
+ImagingStudy, an Endpoint saying where the pixels are served, and a
+transaction `Bundle.json` that loads the whole set into any FHIR server
+with one POST.
 
 ```bash
 dcmjs dicomweb ./study -d ./web                    # every study found
@@ -164,18 +183,24 @@ Patient; if it disagrees with the instance tags you get a warning (run
 
 ## dcmjs-mcp — MCP server for LLM toolchains
 
-Every verb above is also a typed MCP tool (`dicom_dump`, `dicom_instance`,
-`dicom_validate`, `dicom_convert`, `dicom_anonymize`, `dicom_filter`,
-`dicomdir_create`, `dicomweb_create`), served over stdio:
+MCP is the standard protocol by which AI assistants call external tools.
+`dcmjs-mcp` serves every verb above as a typed tool (`dicom_dump`,
+`dicom_instance`, `dicom_validate`, `dicom_convert`, `dicom_anonymize`,
+`dicom_filter`, `dicomdir_create`, `dicomweb_create`), so an agent can
+inspect, convert, and publish DICOM without shell access:
 
 ```bash
 claude mcp add dcmjs -- dcmjs-mcp     # Claude Code; any MCP client works
 ```
 
-Design contract: tool descriptions state defaults and conformance behavior;
-errors are corrective (state → consequence → the parameter to change);
-warnings ride in every result payload; destructive/derived operations offer
-`dry_run`; binary results are always file paths, never inline bytes.
+The design contract is "help the agent make the correct choice": tool
+descriptions state defaults and conformance behavior rather than just
+labeling; errors are corrective (they state what happened, what it means,
+and the exact parameter to change); warnings ride in every result payload
+so partial successes are visible; destructive or derived operations offer
+`dry_run`; and binary results are always file paths, never inline bytes.
+The tool handlers are the same functions the CLI runs, so the two
+surfaces cannot drift apart.
 
 ## dicomwebjs commands
 
@@ -215,7 +240,9 @@ dicomwebjs part10 https://server/dicomweb -S <StudyInstanceUID> -d ./downloads
 ### Static DICOMweb file locations
 
 Tree-structured file sources follow the Static DICOMweb format, rooted at
-`studies/` under the base directory:
+`studies/` under the base directory. Each file is a pre-computed DICOMweb
+response — QIDO is the query/search half of the API, WADO the retrieval
+half:
 
 - `studies/index.json.gz` — QIDO response index for the studies
 - `studies/<studyUID>/index.json.gz` — the study's index entry
