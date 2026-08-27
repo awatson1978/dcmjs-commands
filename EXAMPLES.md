@@ -212,11 +212,20 @@ The big end first — the same commands from the earlier sections, unchanged
 on a 4.7 GB instance:
 
 ```bash
-dcmjs dump full-resolution-level.dcm | head -40   # sub-second: the reader
-                                                  # stops before pixel data
-dcmjs validate ./cmb_mml/                         # sweeps the whole study
-dcmjs dicomweb ./cmb_mml/ -d ./slide-web         # Static-DICOMweb publish
+dcmjs dump full-resolution-level.dcm | head -40   # 0.2 s: the reader stops
+                                                  # before pixel data
+dcmjs validate ./cmb_mml/                         # 5/5 clean — files above
+                                                  # 2 GiB validate through
+                                                  # the streaming parser
+dcmjs dicomweb ./cmb_mml/ -d ./slide-web          # Static-DICOMweb publish
 ```
+
+One honest boundary: the publisher's frame extractor still reads whole
+files, and Node caps a single read at 2 GiB — so `dcmjs dicomweb`
+publishes the four pyramid levels below that (26,522 frames in ~11 s)
+and reports the full-resolution level as skipped, on stderr, with the
+reason. Streaming publish for over-2-GiB instances is a flagged
+follow-up; a skipped instance is always announced, never silent.
 
 The tiles: a whole-slide level with the JPEG transfer syntax stores one
 JPEG per frame, so a frame's bytes are a complete `.jpg` file. The library
