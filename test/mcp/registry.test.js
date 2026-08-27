@@ -125,7 +125,7 @@ test("dicom_filter sets tags and reports byte count", async () => {
   const result = await call("dicom_filter", {
     input: FIXTURE,
     output,
-    set: [{ tag: "00100010", value: "MEYER^ABBIE" }],
+    set: [{ tag: "00100010", value: "FOX^JANE" }],
     drop: ["00104000"],
   });
   expect(result.written).toBe(output);
@@ -134,7 +134,7 @@ test("dicom_filter sets tags and reports byte count", async () => {
 
   const check = await call("dicom_dump", { file: output });
   // PN values serialize as { Alphabetic } objects in the JSON dataset
-  expect(JSON.stringify(check.dataset.PatientName)).toContain("MEYER^ABBIE");
+  expect(JSON.stringify(check.dataset.PatientName)).toContain("FOX^JANE");
 });
 
 test("dicomdir_create dry_run returns the record payload", async () => {
