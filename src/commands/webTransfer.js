@@ -7,6 +7,13 @@
 
 import { DicomAccess } from "../access/DicomAccess.js";
 import { setOptions } from "../utils/logger.js";
+import {
+  buildFhirLayer,
+  writeFhirLayer,
+  collectStudyNaturals,
+  loadPatientResource,
+  loadEncounterResource,
+} from "../fhir/publishFhir.js";
 
 const KINDS = {
   download: {
@@ -64,6 +71,33 @@ export async function runTransfer({
     // cliDownload nested the values under an `options` key by mistake).
     await destination.store(srcStudy, { ...spec.preset(), ...values });
     stdout(spec.done(values, studyUID));
+
+    const wantFhir =
+      kind === "download" &&
+      (values.fhir ||
+        values.fhirPatient ||
+        values.fhirEncounter ||
+        values.wadoRoot);
+    if (wantFhir) {
+      const layer = buildFhirLayer({
+        naturals: collectStudyNaturals(srcStudy),
+        patientResource: values.fhirPatient
+          ? loadPatientResource(values.fhirPatient)
+          : undefined,
+        encounterResource: values.fhirEncounter
+          ? loadEncounterResource(values.fhirEncounter)
+          : undefined,
+        wadoRoot: values.wadoRoot,
+      });
+      for (const warning of layer.warnings) {
+        stderr(`${kind}: warning: ${warning}`);
+      }
+      const fhirDir = writeFhirLayer(values.directory, layer);
+      stdout(
+        `${kind}: fhir: Patient/${layer.patient.id}, ` +
+          `ImagingStudy/${layer.imagingStudy.id} → ${fhirDir}`
+      );
+    }
     return 0;
   } catch (err) {
     stderr(`${kind}: ${err.message}`);
@@ -83,6 +117,10 @@ export function registerTransferCommands(program) {
         "StudyInstanceUID to transfer"
       )
       .option("-d, --directory <targetDir>", "target directory", ".")
+      .option("--fhir", "also write a FHIR layer (download only)")
+      .option("--fhir-patient <file>", "embed this FHIR Patient verbatim")
+      .option("--fhir-encounter <file>", "embed this FHIR Encounter")
+      .option("--wado-root <url>", "FHIR Endpoint.address for the tree")
       .option("--debug", "debug logging")
       .option("--verbose", "per-instance transfer narration")
       .option("--quiet", "errors only")
