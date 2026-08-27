@@ -3,7 +3,7 @@
 import { extractTagKeyedJson } from "../../src/utils/extractTagKeyedJson.js";
 
 const MODALITY = { vr: "CS", Value: ["MR"] };
-const PATIENT_NAME = { vr: "PN", Value: [{ Alphabetic: "WATSON^ABIGAIL" }] };
+const PATIENT_NAME = { vr: "PN", Value: [{ Alphabetic: "DOE^JANE" }] };
 const TRANSFER_SYNTAX = { vr: "UI", Value: ["1.2.840.10008.1.2.1"] };
 
 test("flat DICOM JSON passes through", () => {
