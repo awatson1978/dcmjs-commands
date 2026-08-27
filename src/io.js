@@ -24,10 +24,15 @@ export function readFileArrayBuffer(filePath) {
   return toArrayBuffer(fs.readFileSync(filePath));
 }
 
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
+
 /**
  * Sniff what a file is: "dicom" (DICM magic at offset 128), "pdf"
- * (%PDF- at offset 0), or "unknown". Extension is the tiebreaker when the
- * magic checks cannot be read (short files).
+ * (%PDF- at offset 0), "png", "jpeg", or "unknown". Extension is the
+ * tiebreaker when the magic checks cannot be read (short files). DICM is
+ * checked first — a Part 10 file can contain JPEG bytes in its fragments,
+ * but never before the 132-byte preamble.
  */
 export function sniffKind(filePath) {
   let fd;
@@ -40,12 +45,16 @@ export function sniffKind(filePath) {
     ) {
       return "dicom";
     }
-    const pdf = Buffer.alloc(5);
-    if (
-      fs.readSync(fd, pdf, 0, 5, 0) === 5 &&
-      pdf.toString("ascii") === "%PDF-"
-    ) {
+    const head = Buffer.alloc(8);
+    const headBytes = fs.readSync(fd, head, 0, 8, 0);
+    if (headBytes >= 5 && head.toString("ascii", 0, 5) === "%PDF-") {
       return "pdf";
+    }
+    if (headBytes >= 8 && head.equals(PNG_MAGIC)) {
+      return "png";
+    }
+    if (headBytes >= 3 && head.subarray(0, 3).equals(JPEG_MAGIC)) {
+      return "jpeg";
     }
   } catch {
     // fall through to extension check
@@ -59,6 +68,12 @@ export function sniffKind(filePath) {
   }
   if (/\.pdf$/i.test(filePath)) {
     return "pdf";
+  }
+  if (/\.png$/i.test(filePath)) {
+    return "png";
+  }
+  if (/\.(jpg|jpeg)$/i.test(filePath)) {
+    return "jpeg";
   }
   return "unknown";
 }

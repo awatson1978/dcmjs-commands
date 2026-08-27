@@ -2,22 +2,31 @@
 //
 // dcmjs convert <input> --to <format> [options]
 //
-// The PACS PDF workflow both ways plus JSON/FHIR conversions:
+// The PACS PDF workflow both ways plus JSON/FHIR conversions, and the
+// forward-migration path for images exported from antiquated DICOM files:
 //   .dcm → json | dicomweb-json | fhir | dcm | pdf (extract encapsulated)
 //   .pdf → dcm (Encapsulated PDF wrap) | fhir (DocumentReference)
+//   .png/.jpg → dcm | dicomweb-json | json  (with optional DICOM JSON
+//        metadata sidecar; conformance handled by dcmjs fromImage — fresh
+//        SOPInstanceUID, DERIVED\SECONDARY when a source instance is known)
 
+import fs from "node:fs";
+import path from "node:path";
 import {
   readFileArrayBuffer,
   sniffKind,
   binaryReplacer,
   writeOutput,
 } from "../io.js";
+import { decodeImage } from "../imaging/decodeImage.js";
+import { extractTagKeyedJson } from "../utils/extractTagKeyedJson.js";
 
 export const convertUsage = `usage: dcmjs convert <input> --to <format> [options]
 
 Formats (auto-detected input kind → supported targets):
     .dcm → fhir | dicomweb-json | json | dcm | pdf
     .pdf → dcm | fhir
+    .png/.jpg → dcm | dicomweb-json | json
 
 Options:
     -t, --to <format>        target format (required)
@@ -25,11 +34,16 @@ Options:
     --pretty                 pretty-print JSON output
     --bundle                 fhir: emit a collection Bundle
     --fhir-version <v>       R4 | R4B (default R4B)
-    --patient-name <name>    pdf input: PatientName
-    --patient-id <id>        pdf input: PatientID
+    --patient-name <name>    pdf/image input: PatientName
+    --patient-id <id>        pdf/image input: PatientID
     --title <title>          pdf input: DocumentTitle
-    --study-uid <uid>        pdf input: attach to an existing StudyInstanceUID
-    --series-uid <uid>       pdf input: SeriesInstanceUID
+    --study-uid <uid>        pdf/image input: attach to an existing StudyInstanceUID
+    --series-uid <uid>       pdf/image input: SeriesInstanceUID
+    -m, --metadata <file>    image input: DICOM JSON metadata document
+                             (default: same-basename .json next to the image)
+    --restore-values         image input: rebuild approximate stored values by
+                             inverting WindowCenter/WindowWidth (8-bit input
+                             with window metadata only)
 `;
 
 function stringify(value, pretty) {
@@ -103,6 +117,167 @@ async function convertDicom({ dcmjs, arrayBuffer, to, values }) {
   throw new Error(`unsupported conversion: dicom → ${to}`);
 }
 
+/**
+ * Locate and parse the metadata document for an image input. Explicit
+ * --metadata must exist and parse; the auto-discovered same-basename .json
+ * is optional (a bare image converts with minimal defaults).
+ */
+function resolveImageMetadata(input, values, stderr) {
+  const explicit = values.metadata;
+  const candidate =
+    explicit ||
+    path.format({
+      ...path.parse(input),
+      base: undefined,
+      ext: ".json",
+    });
+
+  if (!fs.existsSync(candidate)) {
+    if (explicit) {
+      throw new Error(`metadata file not found: ${explicit}`);
+    }
+    return { tags: {}, meta: {}, ignoredKeys: [], source: null };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(candidate, "utf8"));
+  } catch (err) {
+    throw new Error(
+      `could not parse metadata ${candidate}: ${err.message} — fix the JSON ` +
+        `or pass a different --metadata file`
+    );
+  }
+
+  const extracted = extractTagKeyedJson(parsed);
+  if (!Object.keys(extracted.tags).length) {
+    stderr(
+      `convert: warning: ${candidate} contains no DICOM JSON entries — ` +
+        `converting with minimal defaults`
+    );
+  }
+  return { ...extracted, source: candidate };
+}
+
+/** First numeric value of a tag entry, else undefined. */
+function tagNumber(tags, tag) {
+  const value = tags[tag]?.Value?.[0];
+  return value === undefined || value === null ? undefined : Number(value);
+}
+
+/**
+ * Invert the linear VOI transform (PS3.3 C.11.2.1.2) to rebuild approximate
+ * stored values from window-rendered 8-bit pixels:
+ *   stored = ((p / 255) - 0.5) * (WW - 1) + (WC - 0.5)
+ */
+function restoreStoredValues(decoded, tags, stderr) {
+  const windowCenter = tagNumber(tags, "00281050");
+  const windowWidth = tagNumber(tags, "00281051");
+  if (windowCenter === undefined || windowWidth === undefined) {
+    throw new Error(
+      "--restore-values needs WindowCenter (0028,1050) and WindowWidth " +
+        "(0028,1051) in the metadata — add them or drop --restore-values"
+    );
+  }
+  if (decoded.bitsAllocated !== 8 || decoded.samplesPerPixel !== 1) {
+    throw new Error(
+      "--restore-values applies to 8-bit grayscale input only — this image " +
+        `is ${decoded.bitsAllocated}-bit ${decoded.photometricInterpretation}`
+    );
+  }
+
+  const signed = tagNumber(tags, "00280103") === 1;
+  const bitsStored = tagNumber(tags, "00280101") || 16;
+  const low = signed ? -(2 ** (bitsStored - 1)) : 0;
+  const high = signed ? 2 ** (bitsStored - 1) - 1 : 2 ** bitsStored - 1;
+
+  const source = decoded.pixels;
+  const restored = signed
+    ? new Int16Array(source.length)
+    : new Uint16Array(source.length);
+  for (let i = 0; i < source.length; i++) {
+    const stored = Math.round(
+      (source[i] / 255 - 0.5) * (windowWidth - 1) + (windowCenter - 0.5)
+    );
+    restored[i] = Math.min(high, Math.max(low, stored));
+  }
+
+  stderr(
+    `convert: restored ~${bitsStored}-bit stored values from ` +
+      `WindowCenter ${windowCenter} / WindowWidth ${windowWidth} (lossy 8-bit source)`
+  );
+
+  return {
+    ...decoded,
+    pixels: restored,
+    bitsAllocated: 16,
+    bitsStored,
+    highBit: bitsStored - 1,
+    pixelRepresentation: signed ? 1 : 0,
+  };
+}
+
+async function convertImage({ dcmjs, arrayBuffer, kind, to, values, input, stderr }) {
+  const metadata = resolveImageMetadata(input, values, stderr);
+  let decoded = decodeImage(kind, arrayBuffer);
+
+  // Actual pixels vs metadata claims: dimensions are a hard error the caller
+  // can fix; bit depth silently proceeds at the real depth with a warning.
+  const claimedRows = tagNumber(metadata.tags, "00280010");
+  const claimedColumns = tagNumber(metadata.tags, "00280011");
+  if (
+    (claimedRows !== undefined && claimedRows !== decoded.rows) ||
+    (claimedColumns !== undefined && claimedColumns !== decoded.columns)
+  ) {
+    throw new Error(
+      `decoded ${kind.toUpperCase()} is ${decoded.columns}x${decoded.rows} ` +
+        `but metadata claims Columns=${claimedColumns} Rows=${claimedRows} — ` +
+        `fix the sidecar or drop its Rows/Columns to accept the image dimensions`
+    );
+  }
+
+  if (values["restore-values"]) {
+    decoded = restoreStoredValues(decoded, metadata.tags, stderr);
+  } else {
+    const claimedBitsStored = tagNumber(metadata.tags, "00280101");
+    if (claimedBitsStored !== undefined && claimedBitsStored > decoded.bitsStored) {
+      stderr(
+        `convert: warning: image is ${decoded.bitsStored}-bit but metadata ` +
+          `claims BitsStored=${claimedBitsStored} — pass --restore-values to ` +
+          `rebuild stored values, or accept ${decoded.bitsStored}-bit output`
+      );
+    }
+  }
+
+  if (metadata.ignoredKeys.length) {
+    stderr(
+      `convert: note: ignored non-DICOM sidecar keys: ` +
+        metadata.ignoredKeys.slice(0, 8).join(", ") +
+        (metadata.ignoredKeys.length > 8 ? ", ..." : "")
+    );
+  }
+
+  const events = dcmjs.eventStream.DicomEventStream.fromImage(decoded, {
+    metadata: Object.keys(metadata.tags).length ? metadata.tags : undefined,
+    ...pdfOptionsFromValues(values),
+    ...(values["restore-values"]
+      ? { lossy: { method: "ISO_10918_1" } }
+      : {}),
+  });
+
+  if (to === "dcm") {
+    return { binary: Buffer.from(await events.toPart10()) };
+  }
+  if (to === "dicomweb-json") {
+    return { text: stringify(await events.toDicomWebJson(), values.pretty) };
+  }
+  if (to === "json") {
+    return { text: stringify(await events.toNaturalized(), values.pretty) };
+  }
+
+  throw new Error(`unsupported conversion: ${kind} → ${to}`);
+}
+
 async function convertPdf({ dcmjs, arrayBuffer, to, values }) {
   const fhirVersion = values["fhir-version"] || "R4B";
   const dataset = dcmjs.encapsulated.encapsulatePdf(
@@ -148,7 +323,7 @@ export async function runConvert({
     const kind = sniffKind(input);
     if (kind === "unknown") {
       throw new Error(
-        `cannot determine input kind of ${input} (not DICOM, not PDF)`
+        `cannot determine input kind of ${input} (not DICOM, not PDF, not PNG, not JPEG)`
       );
     }
 
@@ -156,7 +331,17 @@ export async function runConvert({
     const result =
       kind === "dicom"
         ? await convertDicom({ dcmjs, arrayBuffer, to, values })
-        : await convertPdf({ dcmjs, arrayBuffer, to, values });
+        : kind === "pdf"
+          ? await convertPdf({ dcmjs, arrayBuffer, to, values })
+          : await convertImage({
+              dcmjs,
+              arrayBuffer,
+              kind,
+              to,
+              values,
+              input,
+              stderr,
+            });
 
     const written = writeOutput({
       output: values.output,

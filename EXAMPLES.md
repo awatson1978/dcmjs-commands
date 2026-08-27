@@ -6,11 +6,12 @@ files pass through the tools piece by piece, so the same command that handles a
 memory. Every example below was run against real files before being written
 down.
 
-Three binaries:
+Four binaries:
 
 | binary | purpose |
 |---|---|
-| `dcmjs` | local Part 10 files: inspect, convert, validate, anonymize, filter |
+| `dcmjs` | local Part 10 files: inspect, convert, validate, anonymize, filter, dicomdir |
+| `dcmjs-mcp` | the same verbs as MCP tools for LLM toolchains (stdio server) |
 | `dicomwebjs` | DICOMweb sources (http or Static-DICOMWeb file trees): dump, instance, study transfer |
 | `dimsejs` | DIMSE networking (stub — placeholder surface) |
 
@@ -69,6 +70,42 @@ dcmjs convert consent.pdf --to dcm -o consent.dcm \
   --patient-name "DOE^JANE" --patient-id 12345 \
   --title "Signed consent" --study-uid 1.2.840.113619.2.5.1762583153.215519.978957063.78
 ```
+
+## `dcmjs convert` — images back into DICOM
+
+The forward-migration path: a PNG or JPEG exported from an old DICOM file,
+traveling with its metadata as DICOM JSON (any wrapper document works — the
+converter plucks tag-keyed `{vr, Value}` entries wherever they sit and tells
+you what it ignored).
+
+```bash
+# 001.json next to 001.png is discovered automatically
+dcmjs convert 001.png --to dcm -o rebuilt/001.dcm
+# convert: note: ignored non-DICOM sidecar keys: png, provenance
+
+dcmjs dump rebuilt/001.dcm | grep -E "0008,0008|0020,000D"
+# (0008,0008) CS ImageType: DERIVED\SECONDARY   ← source instance detected
+# (0020,000D) UI StudyInstanceUID: 1.3.12...    ← original study preserved
+```
+
+Conformance is enforced by the dcmjs library, not left to the caller: the
+actual image geometry always beats metadata claims (a wrong `Rows` is a hard
+error naming both numbers), and when the metadata identifies the original
+instance the rebuilt file gets a **fresh SOPInstanceUID**, a
+`SourceImageSequence` reference, and `LossyImageCompression 01` — original
+UIDs are never reused for rebuilt pixels.
+
+An 8-bit export of a 16-bit original can approximately invert the window
+rendering when the metadata carries WindowCenter/WindowWidth:
+
+```bash
+dcmjs convert 001.png --to dcm -o rebuilt/001.dcm --restore-values
+# convert: restored ~12-bit stored values from WindowCenter 312 / WindowWidth 673 (lossy 8-bit source)
+```
+
+Gray-stored-as-RGB (the usual screenshot/export shape) collapses to
+MONOCHROME2 automatically; real color stays RGB. A bare image with no
+metadata becomes a plain Secondary Capture instance.
 
 ## `dcmjs validate` — sweep a corpus
 
@@ -227,6 +264,44 @@ dcmjs filter in.dcm -o out.dcm \
   --drop 00104000
 # wrote out.dcm (527,462 bytes, 3 filters)
 ```
+
+---
+
+## `dcmjs-mcp` — the toolbox for LLM toolchains
+
+The forward-migration problem in practice: decades of DICOM files, and the
+thing driving the migration is an LLM agent. `dcmjs-mcp` is a stdio MCP
+server that exposes every verb above as a tool an agent can call natively —
+`dicom_dump`, `dicom_instance`, `dicom_validate`, `dicom_convert`,
+`dicom_anonymize`, `dicom_filter`, `dicomdir_create`.
+
+Register it (Claude Code shown; any MCP client works):
+
+```bash
+claude mcp add dcmjs -- dcmjs-mcp
+```
+
+The design contract is "help the agent make the correct choice":
+
+- **Descriptions are guidance, not labels** — each tool states its defaults
+  and conformance behavior ("original UIDs are never reused for rebuilt
+  pixels", "validate the output and audit before release").
+- **Errors are corrective**: state → consequence → the parameter to change.
+  `"target \"dcm\" produces binary — pass output: <path> to receive
+  { written: path }"`; `"image is 8-bit but metadata claims BitsStored=12 —
+  pass restore_values true or accept 8-bit output"`.
+- **Warnings ride along**: every result is `{ ok, warnings, ... }`, so a
+  partial success (ignored sidecar keys, non-conformant file names, skipped
+  files) is visible in the payload the agent reasons over.
+- **Dry runs before destruction**: `dicom_anonymize` returns its tag-level
+  change list and `dicomdir_create` its full record tree without writing
+  anything when `dry_run` is set.
+- **Binary stays on disk** — tools return `{ written: path }`, never inline
+  bytes.
+
+The handlers are the same DI'd command functions the CLI uses — one code
+path, two front ends. (After pulling this feature, re-run `npm link` here so
+the `dcmjs-mcp` symlink is created.)
 
 ---
 
