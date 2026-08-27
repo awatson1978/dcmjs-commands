@@ -1,6 +1,7 @@
 import { writeStream, logger, frameToBuffer } from "../utils/index.js";
 import { InstanceAccess } from "../access/DicomAccess.js";
 import fsBase from "fs";
+import path from "node:path";
 import crypto from "node:crypto";
 import { finished } from "stream/promises";
 import { getBulkdataInfo } from "../utils/getBulkdataInfo.js";
@@ -216,5 +217,57 @@ export class StaticDicomWebInstance extends InstanceAccess {
 
   async storeRendered(_source, frame) {
     log.debug("TODO - Storing rendered frame", frame);
+  }
+
+  /**
+   * Read a bulkdata item back out of the tree. BulkDataURI values in
+   * metadata.gz are series-relative ("../../bulkdata/<h>/<h>/<hash>.mht");
+   * the stored file is the multipart-wrapped payload storeBulkdataItem
+   * writes, so the boundary wrapper is stripped here.
+   */
+  async openBulkdata(key, jsonNode, _options) {
+    const uri = jsonNode?.BulkDataURI;
+    if (!uri) {
+      throw new Error(`no BulkDataURI on tag ${key} in ${this.url}`);
+    }
+    // this.url = .../series/<uid>/instances/<sop>; URIs are series-relative
+    const filePath = path.resolve(this.url, "../..", uri);
+    if (!fsBase.existsSync(filePath)) {
+      throw new Error(
+        `bulkdata file not found for tag ${key}: ${filePath}`
+      );
+    }
+    const raw = fsBase.readFileSync(filePath);
+    const headerEnd = raw.indexOf("\r\n\r\n");
+    const trailer = raw.lastIndexOf("\r\n--");
+    if (headerEnd < 0 || trailer <= headerEnd) {
+      // not multipart-wrapped (encapsulated write): return as-is
+      return {
+        buffer: raw.buffer.slice(
+          raw.byteOffset,
+          raw.byteOffset + raw.byteLength
+        ),
+        encapsulated: true,
+        contentType: "application/octet-stream",
+        transferSyntaxUID: "1.2.840.10008.1.2.1",
+      };
+    }
+    const header = raw.toString("latin1", 0, headerEnd);
+    const contentType =
+      header.match(/Content-Type:\s*([^;\r\n]+)/i)?.[1] ||
+      "application/octet-stream";
+    const transferSyntaxUID =
+      header.match(/transfer-syntax=([^;\s\r\n]+)/i)?.[1] ||
+      "1.2.840.10008.1.2.1";
+    const body = raw.subarray(headerEnd + 4, trailer);
+    return {
+      buffer: body.buffer.slice(
+        body.byteOffset,
+        body.byteOffset + body.byteLength
+      ),
+      encapsulated: false,
+      contentType,
+      transferSyntaxUID,
+    };
   }
 }

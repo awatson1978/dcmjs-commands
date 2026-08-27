@@ -13,7 +13,16 @@ const log = logger.commandsLog.getLogger("StaticDicomWebStudy");
 export class StaticDicomWebStudy extends StudyAccess {
   /** Reads the study level index definition */
   async read() {
-    const json = await loadJson(this.url, "index.json.gz");
+    const json = await loadJson(this.url, "index.json.gz", null);
+    if (!json) {
+      throw new Error(
+        `${this.url}/index.json.gz not found — ` +
+          `${this.dicomAccess.url} does not look like a Static-DICOMweb ` +
+          `tree (no studies/<uid>/index.json.gz). A directory of Part 10 ` +
+          `(.dcm) files is detected automatically; check the path and the ` +
+          `StudyInstanceUID.`
+      );
+    }
     this.jsonData = json;
     this.natural = naturalize(json);
     log.debug("Read study normal data", !!this.natural);

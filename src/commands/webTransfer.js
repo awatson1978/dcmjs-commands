@@ -56,6 +56,7 @@ export async function runTransfer({
     const destination = await createAccess(values.directory, {
       ...values,
       scheme: "file",
+      isDestination: true,
     });
     const access = await createAccess(url, values);
     const srcStudy = await access.queryStudy(studyUID);
@@ -83,6 +84,7 @@ export function registerTransferCommands(program) {
       )
       .option("-d, --directory <targetDir>", "target directory", ".")
       .option("--debug", "debug logging")
+      .option("--verbose", "per-instance transfer narration")
       .option("--quiet", "errors only")
       .action(async (url, options) => {
         setOptions(options);

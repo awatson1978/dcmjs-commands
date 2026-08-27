@@ -14,6 +14,7 @@ import { runAnonymize, anonymizeUsage } from "./commands/anonymize.js";
 import { runValidate, validateUsage } from "./commands/validate.js";
 import { runFilter, filterUsage } from "./commands/filter.js";
 import { runDicomdir, dicomdirUsage } from "./commands/dicomdir.js";
+import { runDicomweb, dicomwebUsage } from "./commands/dicomweb.js";
 
 export const usage = `usage: dcmjs <command> [options]
 
@@ -25,6 +26,7 @@ Commands:
     filter      stream a file through an event-stream filter chain
     validate    parse files/directories and report failures
     dicomdir    build a DICOMDIR indexing a directory of DICOM files
+    dicomweb    publish a directory of DICOM files as a Static-DICOMweb tree
 
 Run 'dcmjs <command> --help' for command options.
 `;
@@ -106,6 +108,18 @@ const COMMANDS = {
       "fileset-id": { type: "string" },
       strict: { type: "boolean", default: false },
       json: { type: "boolean", default: false },
+      help: { type: "boolean", short: "h", default: false },
+    },
+  },
+  dicomweb: {
+    run: runDicomweb,
+    usage: dicomwebUsage,
+    options: {
+      directory: { type: "string", short: "d" },
+      study: { type: "string", short: "S" },
+      verbose: { type: "boolean", default: false },
+      debug: { type: "boolean", default: false },
+      quiet: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   },
