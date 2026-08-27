@@ -21,13 +21,19 @@ import {
 import { decodeImage } from "../imaging/decodeImage.js";
 import { extractTagKeyedJson } from "../utils/extractTagKeyedJson.js";
 import { loadFhirPatientAttrs } from "./filter.js";
+import {
+  convertMp4ToDicom,
+  convertDicomToMp4,
+  parseFragmentBytes,
+} from "./convertVideo.js";
 
 export const convertUsage = `usage: dcmjs convert <input> --to <format> [options]
 
 Formats (auto-detected input kind → supported targets):
-    .dcm → fhir | dicomweb-json | json | dcm | pdf
+    .dcm → fhir | dicomweb-json | json | dcm | pdf | mp4 (video instances)
     .pdf → dcm | fhir
     .png/.jpg → dcm | dicomweb-json | json
+    .mp4 → dcm (Supplement 225 video encapsulation, streamed — any size)
 
 Options:
     -t, --to <format>        target format (required)
@@ -48,6 +54,8 @@ Options:
     --restore-values         image input: rebuild approximate stored values by
                              inverting WindowCenter/WindowWidth (8-bit input
                              with window metadata only)
+    --fragment-bytes <n>     mp4 input: encapsulated fragment size in bytes
+                             (even, < 2^32; default 268435456 = 256 MiB)
 `;
 
 function stringify(value, pretty) {
@@ -352,14 +360,49 @@ export async function runConvert({
     const kind = sniffKind(input);
     if (kind === "unknown") {
       throw new Error(
-        `cannot determine input kind of ${input} (not DICOM, not PDF, not PNG, not JPEG)`
+        `cannot determine input kind of ${input} (not DICOM, not PDF, not PNG, not JPEG, not MP4)`
       );
     }
 
-    const arrayBuffer = readFileArrayBuffer(input);
     const fhirAttrs = values["fhir-patient"]
       ? loadFhirPatientAttrs(dcmjs, values["fhir-patient"])
       : null;
+
+    // Video paths stream and never buffer the input — route them before
+    // readFileArrayBuffer (a 21.8 GB MP4 is a legal input here).
+    if (kind === "mp4") {
+      if (to !== "dcm") {
+        throw new Error(
+          `unsupported conversion: mp4 → ${to} — an MP4 input converts to ` +
+            "dcm only (Supplement 225 video encapsulation)"
+        );
+      }
+      if (!values.output) {
+        throw new Error("mp4 → dcm produces binary; use -o <file>");
+      }
+      const code = await convertMp4ToDicom({
+        dcmjs,
+        input,
+        output: values.output,
+        options: { ...pdfOptionsFromValues(values), ...(fhirAttrs || {}) },
+        fragmentBytes: parseFragmentBytes(values),
+        stderr,
+      });
+      return code;
+    }
+    if (kind === "dicom" && to === "mp4") {
+      if (!values.output) {
+        throw new Error("dcm → mp4 produces binary; use -o <file>");
+      }
+      return await convertDicomToMp4({
+        dcmjs,
+        input,
+        output: values.output,
+        stderr,
+      });
+    }
+
+    const arrayBuffer = readFileArrayBuffer(input);
     const result =
       kind === "dicom"
         ? await convertDicom({ dcmjs, arrayBuffer, to, values, fhirAttrs })
