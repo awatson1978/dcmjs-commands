@@ -117,6 +117,9 @@ const COMMANDS = {
     options: {
       directory: { type: "string", short: "d" },
       study: { type: "string", short: "S" },
+      verbose: { type: "boolean", default: false },
+      debug: { type: "boolean", default: false },
+      quiet: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   },

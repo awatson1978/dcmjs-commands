@@ -9,6 +9,7 @@
 // `dicomwebjs download` uses.
 
 import { DicomAccess } from "../access/DicomAccess.js";
+import { setOptions } from "../utils/logger.js";
 
 export const dicomwebUsage = `usage: dcmjs dicomweb <directory> [options]
 
@@ -18,6 +19,9 @@ Part 10 DICOM files.
     -d, --directory <dest>   output root (default: ./dicomweb)
     -S, --study <uid>        publish only this StudyInstanceUID
                              (default: every study found)
+    --verbose                per-instance transfer narration
+    --debug                  debug logging
+    --quiet                  errors only
 `;
 
 export async function runDicomweb({
@@ -34,6 +38,7 @@ export async function runDicomweb({
     stderr(dicomwebUsage);
     return 1;
   }
+  setOptions(values);
   const destDir = values.directory || "./dicomweb";
 
   try {

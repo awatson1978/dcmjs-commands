@@ -84,6 +84,7 @@ export function registerTransferCommands(program) {
       )
       .option("-d, --directory <targetDir>", "target directory", ".")
       .option("--debug", "debug logging")
+      .option("--verbose", "per-instance transfer narration")
       .option("--quiet", "errors only")
       .action(async (url, options) => {
         setOptions(options);

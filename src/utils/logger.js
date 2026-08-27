@@ -33,10 +33,14 @@ export function setOptions(options = {}) {
     loglevel.setLevel(options.loglevel);
   } else if (options.debug) {
     loglevel.setLevel("debug");
+  } else if (options.verbose) {
+    loglevel.setLevel("info");
   } else if (options.quiet) {
     loglevel.setLevel("error");
   } else {
-    loglevel.setLevel("info");
+    // Default is quiet: the per-instance transfer narration is info-level;
+    // command results go to stdout, not the log. --verbose restores it.
+    loglevel.setLevel("warn");
   }
   loglevel.rebuild();
 }
