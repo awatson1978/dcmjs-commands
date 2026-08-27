@@ -43,20 +43,20 @@ Requires Node >= 22.13. Everything described in this README lives on the
 repositories sit side by side: the `dcmjs` dependency here points at the
 sibling checkout `file:../dcmjs`, which must be built first:
 
-```console
+```bash
 # this package and its sibling, side by side — note the branch
-$ git clone -b development https://github.com/awatson1978/dcmjs-commands.git
-$ git clone -b development https://github.com/awatson1978/dcmjs.git
+git clone -b development https://github.com/awatson1978/dcmjs-commands.git
+git clone -b development https://github.com/awatson1978/dcmjs.git
 
 # build the sibling first
-$ (cd dcmjs && pnpm install && pnpm run build)
+(cd dcmjs && pnpm install && pnpm run build)
 
 # then install this package
-$ cd dcmjs-commands
-$ npm install
+cd dcmjs-commands
+npm install
 
 # optional: global link so the bins are on your PATH
-$ npm link
+npm link
 ```
 
 ## dcmjs commands
@@ -67,44 +67,44 @@ invocations, not every flag.
 
 ### dump
 
-```console
-$ dcmjs dump scan.dcm            # tag lines: (GGGG,EEEE) VR Keyword: value
-$ dcmjs dump scan.dcm --json     # readable JSON: keyword keys, binary summarized
+```bash
+dcmjs dump scan.dcm            # tag lines: (GGGG,EEEE) VR Keyword: value
+dcmjs dump scan.dcm --json     # readable JSON: keyword keys, binary summarized
 ```
 
 ### instance
 
-```console
-$ dcmjs instance scan.dcm --pretty   # standard DICOM JSON — what a DICOMweb
-                                     # /metadata endpoint returns
+```bash
+dcmjs instance scan.dcm --pretty   # standard DICOM JSON — what a DICOMweb
+                                   # /metadata endpoint returns
 ```
 
 ### convert
 
-```console
-$ dcmjs convert scan.dcm --to fhir --pretty        # Patient + ImagingStudy
-$ dcmjs convert scan.dcm --to dicomweb-json        # DICOM JSON model
-$ dcmjs convert scan.dcm --to json                 # naturalized JSON
-$ dcmjs convert scan.dcm --to dcm -o copy.dcm      # Part 10 round trip
+```bash
+dcmjs convert scan.dcm --to fhir --pretty        # Patient + ImagingStudy
+dcmjs convert scan.dcm --to dicomweb-json        # DICOM JSON model
+dcmjs convert scan.dcm --to json                 # naturalized JSON
+dcmjs convert scan.dcm --to dcm -o copy.dcm      # Part 10 round trip
 
 # Image in: rebuild DICOM from a PNG/JPEG export. A same-basename .json
 # (DICOM JSON metadata, any wrapper document) is discovered automatically;
 # when it identifies the original instance, the result is a conformant
 # derived instance (fresh SOPInstanceUID, DERIVED\SECONDARY,
 # SourceImageSequence — original UIDs are never reused for rebuilt pixels).
-$ dcmjs convert slice.png --to dcm -o rebuilt.dcm
-$ dcmjs convert slice.png --to dcm -o rebuilt.dcm --restore-values
+dcmjs convert slice.png --to dcm -o rebuilt.dcm
+dcmjs convert slice.png --to dcm -o rebuilt.dcm --restore-values
     # invert WindowCenter/Width to approximate the original stored values
 
 # PDF in: wrap a PDF into a DICOM Encapsulated PDF instance
-$ dcmjs convert report.pdf --to dcm -o report.dcm \
+dcmjs convert report.pdf --to dcm -o report.dcm \
     --patient-name "Doe^Jane" --patient-id MRN-42 --title "Discharge Summary"
 
 # PDF out: extract the PDF from a PACS-sourced Encapsulated PDF instance
-$ dcmjs convert report.dcm --to pdf -o report.pdf
+dcmjs convert report.dcm --to pdf -o report.pdf
 
 # Any input kind: apply a FHIR Patient's demographics while converting
-$ dcmjs convert slice.png --to dcm -o rebuilt.dcm --fhir-patient patient.json
+dcmjs convert slice.png --to dcm -o rebuilt.dcm --fhir-patient patient.json
 ```
 
 ### filter
@@ -113,25 +113,25 @@ Copy a file while rewriting or removing tags in a streaming pass. Memory
 stays bounded by the largest piece of pixel data rather than the file, so
 the same command works unchanged on multi-gigabyte inputs:
 
-```console
-$ dcmjs filter in.dcm -o out.dcm --set 00100010=DOE^JANE --drop 00104000
+```bash
+dcmjs filter in.dcm -o out.dcm --set 00100010=DOE^JANE --drop 00104000
 
 # Apply a FHIR Patient resource to the patient identity tags.
 # Insert-or-replace: de-identified files whose patient tags were removed
 # still receive the full set; fields absent from the resource are written
 # empty, so nothing of the previous identity survives.
-$ dcmjs filter in.dcm -o out.dcm --fhir-patient patient.json
+dcmjs filter in.dcm -o out.dcm --fhir-patient patient.json
 
 # Custom filters: a JS module whose methods intercept the streaming
 # reader's events (startElement, value, binaryFragment, ...)
-$ dcmjs filter in.dcm -o out.dcm --module ./my-filter.mjs
+dcmjs filter in.dcm -o out.dcm --module ./my-filter.mjs
 ```
 
 ### anonymize
 
-```console
-$ dcmjs anonymize scan.dcm -o anon.dcm    # default output: <input>-anon.dcm
-$ dcmjs anonymize scan.dcm --dry-run      # tag-level change list as JSON, no write
+```bash
+dcmjs anonymize scan.dcm -o anon.dcm    # default output: <input>-anon.dcm
+dcmjs anonymize scan.dcm --dry-run      # tag-level change list as JSON, no write
 ```
 
 The default rule set covers standard PHI tags only — private tags and
@@ -139,9 +139,9 @@ burned-in pixel data are not touched; audit before release.
 
 ### validate
 
-```console
-$ dcmjs validate ./studies/               # recursive; exit 1 on any failure
-$ dcmjs validate scan.dcm --json report.json --quiet
+```bash
+dcmjs validate ./studies/               # recursive; exit 1 on any failure
+dcmjs validate scan.dcm --json report.json --quiet
 ```
 
 ### dicomdir
@@ -150,10 +150,10 @@ Build a DICOMDIR — the index file on DICOM interchange media (CDs, DVDs,
 USB filesets), whose records point at every file by byte position — for a
 directory of DICOM files, with the offsets computed exactly:
 
-```console
-$ dcmjs dicomdir ./study                  # writes ./study/DICOMDIR
-$ dcmjs dicomdir ./study --copy ./cd      # conformant CD tree: DICOM/IM000001...
-$ dcmjs dicomdir ./study --json           # dry run: record tree as JSON
+```bash
+dcmjs dicomdir ./study                  # writes ./study/DICOMDIR
+dcmjs dicomdir ./study --copy ./cd      # conformant CD tree: DICOM/IM000001...
+dcmjs dicomdir ./study --json           # dry run: record tree as JSON
 ```
 
 ### dicomweb
@@ -166,13 +166,13 @@ ImagingStudy, an Endpoint saying where the pixels are served, and a
 transaction `Bundle.json` that loads the whole set into any FHIR server
 with one POST.
 
-```console
-$ dcmjs dicomweb ./study -d ./web                    # every study found
-$ dcmjs dicomweb ./study -d ./web --fhir \
+```bash
+dcmjs dicomweb ./study -d ./web                    # every study found
+dcmjs dicomweb ./study -d ./web --fhir \
     --fhir-patient patient.json \
     --wado-root https://pacs.example.org/dicomweb
 
-$ curl -X POST https://fhir.example.org/ \
+curl -X POST https://fhir.example.org/ \
     -H 'Content-Type: application/fhir+json' -d @./web/fhir/Bundle.json
 ```
 
@@ -190,8 +190,8 @@ MCP is the standard protocol by which AI assistants call external tools.
 `dicom_filter`, `dicomdir_create`, `dicomweb_create`), so an agent can
 inspect, convert, and publish DICOM without shell access:
 
-```console
-$ claude mcp add dcmjs -- dcmjs-mcp     # Claude Code; any MCP client works
+```bash
+claude mcp add dcmjs -- dcmjs-mcp     # Claude Code; any MCP client works
 ```
 
 The design contract is "help the agent make the correct choice": tool
@@ -207,15 +207,15 @@ surfaces cannot drift apart.
 
 ### dump / instance
 
-```console
+```bash
 # Series query from a DICOMweb server
-$ dicomwebjs dump https://server/dicomweb/studies/<studyUID>/series
+dicomwebjs dump https://server/dicomweb/studies/<studyUID>/series
 
 # Metadata retrieve
-$ dicomwebjs dump https://server/dicomweb/studies/<studyUID>/series/<seriesUID>/metadata
+dicomwebjs dump https://server/dicomweb/studies/<studyUID>/series/<seriesUID>/metadata
 
 # Local Static DICOMweb files (plain or .gz)
-$ dicomwebjs dump studies/<studyUID>/series/<seriesUID>/metadata.gz
+dicomwebjs dump studies/<studyUID>/series/<seriesUID>/metadata.gz
 ```
 
 ### download
@@ -225,17 +225,17 @@ a DICOMweb server URL, a Static-DICOMweb tree, **or a plain directory of
 Part 10 files** (auto-detected by DICM magic). `--fhir` writes the FHIR
 layer alongside; `--verbose` narrates per-instance progress.
 
-```console
-$ dicomwebjs download https://server/dicomweb -S <StudyInstanceUID> -d ~/dicomweb
-$ dicomwebjs download ./study -S <StudyInstanceUID> -d ~/dicomweb   # Part 10 dir
+```bash
+dicomwebjs download https://server/dicomweb -S <StudyInstanceUID> -d ~/dicomweb
+dicomwebjs download ./study -S <StudyInstanceUID> -d ~/dicomweb   # Part 10 dir
 ```
 
 ### part10
 
 Converts DICOMweb data into binary Part 10 files.
 
-```console
-$ dicomwebjs part10 https://server/dicomweb -S <StudyInstanceUID> -d ./downloads
+```bash
+dicomwebjs part10 https://server/dicomweb -S <StudyInstanceUID> -d ./downloads
 ```
 
 ### Static DICOMweb file locations
@@ -256,10 +256,10 @@ Uncompressed variants are accepted, but will not be found on a search.
 
 ## Development
 
-```console
-$ npm test              # jest (native ESM)
-$ npm run lint          # eslint
-$ npm run format:check  # prettier
+```bash
+npm test              # jest (native ESM)
+npm run lint          # eslint
+npm run format:check  # prettier
 ```
 
 Tests use the committed fixture `test/fixtures/sample-dicom.dcm` plus
