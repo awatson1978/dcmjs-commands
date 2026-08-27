@@ -140,6 +140,17 @@ export const TOOLS = {
         .string()
         .optional()
         .describe("image input: path to a DICOM JSON metadata document"),
+      fhir_patient: z
+        .string()
+        .optional()
+        .describe(
+          "path to a FHIR Patient resource — its name/identifier/" +
+            "birthDate/gender replace the whole patient module (fields " +
+            "absent from the resource are written empty). Maps official " +
+            "name over maiden, MR-typed identifier over others; gender " +
+            "uses administrative gender only (male→M, female→F, " +
+            "other/unrecognized→O, unknown→empty)."
+        ),
       restore_values: z.boolean().optional(),
       patient_name: z.string().optional(),
       patient_id: z.string().optional(),
@@ -162,6 +173,7 @@ export const TOOLS = {
           to: args.to,
           output: args.output,
           metadata: args.metadata,
+          "fhir-patient": args.fhir_patient,
           "restore-values": !!args.restore_values,
           "patient-name": args.patient_name,
           "patient-id": args.patient_id,
@@ -242,6 +254,15 @@ export const TOOLS = {
         .optional()
         .describe("tag values to replace"),
       drop: z.array(TAG).optional().describe("tags to remove"),
+      fhir_patient: z
+        .string()
+        .optional()
+        .describe(
+          "path to a FHIR Patient resource to apply to the patient module " +
+            "— insert-or-replace, so de-identified files missing the tags " +
+            "still receive the full module; fields absent from the " +
+            "resource are written empty (deterministic overwrite)."
+        ),
     },
     async handler({ dcmjs, args }) {
       const result = await runCaptured(runFilter, {
@@ -252,6 +273,7 @@ export const TOOLS = {
           set: (args.set || []).map((s) => `${s.tag}=${s.value}`),
           drop: args.drop || [],
           module: [],
+          "fhir-patient": args.fhir_patient,
         },
       });
       if (result.code !== 0) {

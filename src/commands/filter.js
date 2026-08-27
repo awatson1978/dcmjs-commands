@@ -21,6 +21,7 @@
 import fs from "node:fs";
 import { once } from "node:events";
 import { pathToFileURL } from "node:url";
+import { makeFhirPatientFilter } from "../filters/fhirPatient.js";
 
 export const filterUsage = `usage: dcmjs filter <in.dcm> -o <out.dcm> [options]
 
@@ -31,12 +32,28 @@ Stream a DICOM file through an event-stream filter chain to a new file.
                           (repeatable; TAG is 8 hex digits, e.g. 00100010)
     --drop TAG            remove every element or sequence with this tag
                           (repeatable)
+    --fhir-patient <file> apply a FHIR Patient resource to the patient module
+                          (insert-or-replace of PatientName/ID/BirthDate/Sex;
+                          fields absent from the resource are written empty)
     --module <file.mjs>   load custom filter(s) from a JS module whose default
                           export is a filter object or array of filter objects
                           (repeatable; applied before --set/--drop)
 
 With no filters, performs a streaming structural copy.
 `;
+
+/** Load a FHIR Patient file and map it to patient-module attributes. */
+export function loadFhirPatientAttrs(dcmjs, filePath) {
+  let resource;
+  try {
+    resource = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (err) {
+    throw new Error(
+      `could not read FHIR Patient ${filePath}: ${err.message}`
+    );
+  }
+  return dcmjs.fhir.patientToDataset(resource);
+}
 
 /** Accept 00100010, 0010,0010 or (0010,0010); return canonical 8-hex. */
 function normalizeTag(text) {
@@ -180,7 +197,15 @@ export async function runFilter({ dcmjs, positionals, values, stdout, stderr }) 
     filters = [
       ...(await loadModuleFilters(values.module ?? [])),
       ...(values.set?.length ? [makeSetFilter(values.set)] : []),
-      ...(values.drop?.length ? [makeDropFilter(values.drop)] : [])
+      ...(values.drop?.length ? [makeDropFilter(values.drop)] : []),
+      // Must be last: it synthesizes elements directly to the listener base
+      ...(values["fhir-patient"]
+        ? [
+            makeFhirPatientFilter(
+              loadFhirPatientAttrs(dcmjs, values["fhir-patient"])
+            )
+          ]
+        : [])
     ];
   } catch (e) {
     stderr(`dcmjs filter: ${e.message}`);
