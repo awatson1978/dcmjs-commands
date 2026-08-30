@@ -155,7 +155,28 @@ burned-in pixel data are not touched; audit before release.
 ```bash
 dcmjs validate ./studies/               # recursive; exit 1 on any failure
 dcmjs validate scan.dcm --json report.json --quiet
+dcmjs validate scan.dcm --conformance   # + structure and cross-field checks
+dcmjs validate scan.dcm --layers 1,2,3  # + the Part 3 IOD rulebook
 ```
+
+Plain `validate` answers "does it parse?". `--conformance` runs the
+dcmjs 2.0 validation engine on every file that parses: are the fields
+well-formed, and do they agree with each other (pixel data length vs
+rows × columns, bit depths, transfer-syntax coherence)? Adding layer 3
+(`--layers 1,2,3`) also checks the file against the standard's own
+definition of what its SOP Class requires — delete `Rows` from an MR
+image and you get:
+
+```
+NONCONFORMANT  scan.dcm  (1 error, 0 warnings)
+    error  iod.type1.missing  Type 1 attribute Rows (00280010) of module image-pixel is missing
+```
+
+Conformance *errors* exit 1; warnings and infos inform. Suppress rules
+you've triaged with `--ignore <rule-id>` (repeatable). Files too large
+for eager parsing validate through the streaming engine — same rules,
+bounded memory. `--json` reports include each file's conformance
+summary and any non-info issues.
 
 ### dicomdir
 
