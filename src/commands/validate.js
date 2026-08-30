@@ -1,9 +1,12 @@
 // src/commands/validate.mjs
 //
-// dcmjs validate <dir-or-file...> [--quiet] [--json <file>]
+// dcmjs validate <dir-or-file...> [--quiet] [--json <file>] [--conformance]
 // Parse every discovered DICOM file through the classic read path and
-// report per-file status. Exit 1 on any failure. The heavier three-path
-// divergence harness lives in scripts/corpus-runner.mjs.
+// report per-file status. With --conformance, also run the dcmjs 2.0
+// validation engine (structure, cross-field arithmetic, and — with
+// --layers 1,2,3 — the Part 3 IOD rulebook). Exit 1 on any parse failure
+// or conformance error. The heavier three-path divergence harness lives
+// in scripts/corpus-runner.mjs.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -15,12 +18,43 @@ Parse DICOM files and report failures.
 
     --quiet          only print failures and the summary
     --json <file>    write the full report as JSON
+    --conformance    also check conformance (dcmjs.validate, layers 1-2)
+    --layers <list>  which conformance layers to run, e.g. --layers 1,2,3
+                     (3 = the Part 3 IOD rulebook; implies --conformance)
+    --ignore <rule>  suppress a conformance rule id (repeatable),
+                     e.g. --ignore iod.conditional
 `;
 
 // Above this size the eager path cannot even read the file (Node's
 // readFileSync caps at 2 GiB), so validation switches to the streaming
 // parser — same conformance walk, bounded memory. Overridable for tests.
 const STREAM_THRESHOLD_BYTES = 2 ** 31;
+
+// Fold a dcmjs.validate report into a file record. Errors make the file
+// nonconformant (the dciodvfy convention: warnings and infos inform,
+// errors fail); only non-info issues ride along, so a directory sweep's
+// JSON stays readable.
+function applyConformance(record, report) {
+  record.conformance = report.summary;
+  const notable = report.issues.filter((issue) => issue.severity !== "info");
+  if (notable.length > 0) {
+    record.issues = notable;
+  }
+  if (report.summary.errors > 0) {
+    record.status = "nonconformant";
+  }
+}
+
+// ValidationListener with the same completeness tracking the inert
+// listener uses: endDataSet must have fired or the file was truncated.
+function validatingCompletionListener(ValidationListener) {
+  return class extends ValidationListener {
+    _baseEndDataSet(...args) {
+      super._baseEndDataSet(...args);
+      this.done = true;
+    }
+  };
+}
 
 /**
  * The validation core, decoupled from output formatting: discover, parse,
@@ -31,7 +65,15 @@ const STREAM_THRESHOLD_BYTES = 2 ** 31;
  * reader (an inert event-stream listener — success means the whole file
  * walked cleanly); such records carry `streamed: true`.
  *
- * @param {{ dcmjs: Object, targets: string[], streamThreshold?: number }} args
+ * `conformance`, when set, is a dcmjs.validate options object
+ * ({ layers, ignore }); each successfully parsed file is then also
+ * validated and its record gains a `conformance` summary. Files whose
+ * report contains errors get status "nonconformant" and count as
+ * failures. Streamed files validate through ValidationListener — same
+ * rules, bounded memory.
+ *
+ * @param {{ dcmjs: Object, targets: string[], streamThreshold?: number,
+ *           conformance?: { layers?: number[], ignore?: string[] } }} args
  * @returns {Promise<{ records: Array, failures: number }>}
  * @throws when a target cannot be walked or no DICOM files are found
  */
@@ -39,9 +81,11 @@ export async function validateFiles({
   dcmjs,
   targets,
   streamThreshold = STREAM_THRESHOLD_BYTES,
+  conformance = null,
 }) {
   const { DicomMessage } = dcmjs.data;
   const { fromPart10Stream, EventStreamListener } = dcmjs.eventStream;
+  const { ValidationListener } = dcmjs.validation;
   const files = [];
   for (const target of targets) {
     discoverDicomFiles(target, files);
@@ -68,7 +112,9 @@ export async function validateFiles({
       if (size >= streamThreshold) {
         // The streaming reader resolves quietly on a truncated input, so
         // completeness is the check: endDataSet must have fired.
-        const listener = new CompletionListener();
+        const listener = conformance
+          ? new (validatingCompletionListener(ValidationListener))(conformance)
+          : new CompletionListener();
         await fromPart10Stream(
           fs.createReadStream(file, { highWaterMark: 8 * 1024 * 1024 }),
           listener
@@ -76,22 +122,33 @@ export async function validateFiles({
         if (!listener.done) {
           throw new Error("input ended before the dataset completed");
         }
-        records.push({
+        const record = {
           file: relPath,
           status: "ok",
           bytes: size,
           streamed: true,
           ms: Date.now() - startedAt,
-        });
+        };
+        if (conformance) {
+          applyConformance(record, listener.finish());
+        }
+        records.push(record);
       } else {
         const arrayBuffer = readFileArrayBuffer(file);
-        DicomMessage.readFile(arrayBuffer);
-        records.push({
+        const dicomDict = DicomMessage.readFile(arrayBuffer);
+        const record = {
           file: relPath,
           status: "ok",
           bytes: arrayBuffer.byteLength,
           ms: Date.now() - startedAt,
-        });
+        };
+        if (conformance) {
+          applyConformance(record, await dcmjs.validate(dicomDict, conformance));
+        }
+        records.push(record);
+      }
+      if (records[records.length - 1].status === "nonconformant") {
+        failures += 1;
       }
     } catch (err) {
       failures += 1;
@@ -119,25 +176,61 @@ export async function runValidate({
     return 1;
   }
 
+  let conformance = null;
+  if (values.conformance || values.layers) {
+    conformance = {};
+    if (values.layers) {
+      const layers = String(values.layers)
+        .split(",")
+        .map((n) => Number(n.trim()));
+      if (layers.some((n) => ![1, 2, 3].includes(n))) {
+        stderr(`validate: --layers must be a comma list drawn from 1,2,3`);
+        return 1;
+      }
+      conformance.layers = layers;
+    }
+    if (values.ignore && values.ignore.length > 0) {
+      conformance.ignore = values.ignore;
+    }
+  }
+
   let result;
   try {
-    result = await validateFiles({ dcmjs, targets: positionals });
+    result = await validateFiles({ dcmjs, targets: positionals, conformance });
   } catch (err) {
     stderr(`validate: ${err.message}`);
     return 1;
   }
   const { records, failures } = result;
 
+  let nonconformant = 0;
   for (const record of records) {
     if (record.status === "fail") {
       stdout(`FAIL  ${record.ms}ms  ${record.file}  (${record.error})`);
+    } else if (record.status === "nonconformant") {
+      nonconformant += 1;
+      const { errors, warnings } = record.conformance;
+      stdout(
+        `NONCONFORMANT  ${record.file}  (${errors} error${
+          errors === 1 ? "" : "s"
+        }, ${warnings} warning${warnings === 1 ? "" : "s"})`
+      );
+      for (const issue of record.issues || []) {
+        stdout(`    ${issue.severity}  ${issue.rule}  ${issue.message}`);
+      }
     } else if (!values.quiet) {
-      stdout(`ok    ${record.bytes}B  ${record.ms}ms  ${record.file}`);
+      const summary = record.conformance
+        ? `  (${record.conformance.warnings} warnings, ${record.conformance.infos} infos)`
+        : "";
+      stdout(`ok    ${record.bytes}B  ${record.ms}ms  ${record.file}${summary}`);
     }
   }
 
+  const tail = conformance ? `, ${nonconformant} nonconformant` : "";
   stdout(
-    `${records.length - failures}/${records.length} clean, ${failures} failed`
+    `${records.length - failures}/${records.length} clean, ${
+      failures - nonconformant
+    } failed${tail}`
   );
 
   if (values.json) {
