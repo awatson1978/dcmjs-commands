@@ -97,6 +97,9 @@ const COMMANDS = {
     options: {
       quiet: { type: "boolean", default: false },
       json: { type: "string" },
+      conformance: { type: "boolean", default: false },
+      layers: { type: "string" },
+      ignore: { type: "string", multiple: true },
       help: { type: "boolean", short: "h", default: false },
     },
   },
